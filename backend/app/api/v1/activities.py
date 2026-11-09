@@ -23,6 +23,7 @@ from app.api.v1.deps import (
     assert_project_role,
     is_project_owner_or_admin,
 )
+from app.wiring.alert_reactions import AlertActionKind, record_alert_reaction
 from app.wiring.platform_wakes import dispatch_all_submitted
 from contexts.activities.domain.creativity_judge import JudgeStatus
 from contexts.activities.domain.errors import (
@@ -986,6 +987,9 @@ async def start_activity_activation(
         request_id=ctx.request_id,
     )
     await db.commit()
+    await record_alert_reaction(
+        db, chatroom_id=chatroom_id, actor_user_id=principal.user_id, kind=AlertActionKind.ACTIVITY_STARTED
+    )
     activation = started.activation
     activity_type = await _resolve_activation_type(
         facade, project_id=access.project_id, activation=activation
@@ -1020,6 +1024,9 @@ async def end_activity_activation(
     )
     await db.commit()
     if result.transitioned:
+        await record_alert_reaction(
+            db, chatroom_id=chatroom_id, actor_user_id=principal.user_id, kind=AlertActionKind.ACTIVITY_ENDED
+        )
         await dispatch_activation_ended(chatroom_id, result.activation.id, notice=result.notice)
     activity_type = await _resolve_activation_type(
         facade, project_id=access.project_id, activation=result.activation

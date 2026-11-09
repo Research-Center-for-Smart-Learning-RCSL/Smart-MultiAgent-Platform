@@ -37,6 +37,7 @@ from contexts.conversation.domain.errors import (
 from contexts.conversation.domain.models import (
     AgentObservation,
     ChatroomAgentRole,
+    ClassroomRole,
     SenderType,
 )
 from contexts.conversation.infrastructure.repositories.observation_repo import ObservationRepository
@@ -1411,6 +1412,9 @@ class _FakeObsRepo:
     async def mark_release_message(self, *, chatroom_id, observation_id, release_target):
         self.message_target = release_target
 
+    async def mark_first_action(self, *, chatroom_id, kind, observation_id=None):
+        return 0
+
 
 class _FakeBindings:
     def __init__(self, normal=(), observer=()):
@@ -1977,8 +1981,8 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
         def __init__(self, db) -> None:
             pass
 
-        async def role_of(self, *, chatroom_id, agent_id):
-            return ChatroomAgentRole.OBSERVER
+        async def roles_of(self, *, chatroom_id, agent_id):
+            return ChatroomAgentRole.OBSERVER, ClassroomRole.NONE
 
     monkeypatch.setattr(te, "ChatroomAgentRepository", _BindingRepo)
 
@@ -2871,6 +2875,12 @@ def _create_returning(**overrides):
         "released_by_user_id": None,
         "created_at": None,
         "deleted_at": None,
+        "is_alert": False,
+        "alert_reason": None,
+        "first_viewed_at": None,
+        "first_viewed_via": None,
+        "first_action_at": None,
+        "first_action_kind": None,
     }
     row.update(overrides)
     return SimpleNamespace(**row)

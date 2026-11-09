@@ -26,8 +26,13 @@ from contexts.conversation.application.observation_service import (
     ReleaseResult,
 )
 from contexts.conversation.application.triggers import evaluate_message_wakeups
-from contexts.conversation.domain.models import RELEASED_OBSERVATION_TYPE, AgentObservation
+from contexts.conversation.domain.models import (
+    RELEASED_OBSERVATION_TYPE,
+    AgentObservation,
+    AlertViewSurface,
+)
 from contexts.conversation.interfaces import room_channel
+from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.interfaces import user_channel
 from contexts.orchestration.infrastructure import pending_notify
 from shared_kernel.auth.context import RequestContext
@@ -88,6 +93,16 @@ class ObservationOut(BaseModel):
     release_target: dict[str, Any] | None
     released_by_user_id: uuid.UUID | None
     created_at: str | None
+    # [R34.02].
+    is_alert: bool = False
+    alert_reason: str | None = None
+    first_viewed_at: str | None = None
+    first_action_at: str | None = None
+
+
+class AlertViewsIn(BaseModel):
+    observation_ids: list[uuid.UUID] = Field(min_length=1, max_length=_MAX_TARGET_IDS)
+    via: Literal["panel", "dashboard"]
 
 
 def _to_out(o: AgentObservation) -> ObservationOut:
@@ -104,6 +119,10 @@ def _to_out(o: AgentObservation) -> ObservationOut:
         release_target=o.release_target,
         released_by_user_id=o.released_by_user_id,
         created_at=o.created_at.isoformat() if o.created_at else None,
+        is_alert=o.is_alert,
+        alert_reason=o.alert_reason,
+        first_viewed_at=o.first_viewed_at.isoformat() if o.first_viewed_at else None,
+        first_action_at=o.first_action_at.isoformat() if o.first_action_at else None,
     )
 
 
@@ -156,6 +175,30 @@ async def list_observations(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [_to_out(o) for o in rows]
+
+
+@observation_router.post(
+    "/{chatroom_id}/observations/viewed",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def record_alert_views(
+    body: AlertViewsIn,
+    chatroom_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """The creator's client saw these alerts on an open, visible surface ([R34.02]).
+
+    Ids that are not alerts of this room, or were already seen, are ignored, so
+    the call is idempotent and reveals nothing about ids outside the room. An
+    admin passes the gate but is not the teacher, so their view records nothing."""
+    await _require_creator(db, principal=principal, chatroom_id=chatroom_id)
+    await ConversationFacade(db).record_alert_views(
+        chatroom_id=chatroom_id,
+        actor_user_id=principal.user_id,
+        observation_ids=body.observation_ids,
+        via=AlertViewSurface(body.via),
+    )
 
 
 @observation_router.post("/{chatroom_id}/observations/{observation_id}/release")

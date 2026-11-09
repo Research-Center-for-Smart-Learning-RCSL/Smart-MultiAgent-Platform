@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { BucketSize } from '../models/BucketSize';
+import type { DashboardAlertsOut } from '../models/DashboardAlertsOut';
 import type { DashboardSummaryOut } from '../models/DashboardSummaryOut';
 import type { DashboardTimeseriesOut } from '../models/DashboardTimeseriesOut';
 import type { DashboardWatchlistOut } from '../models/DashboardWatchlistOut';
@@ -11,6 +12,39 @@ import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class DashboardService {
+    /**
+     * Dashboard Alerts
+     * Analyst alerts from the rooms the caller created ([R34.03]).
+     *
+     * An alert is an observation, readable only by its room's creator ([R28.03]), so
+     * a member who may open a room still sees none of its alerts here.
+     * @returns DashboardAlertsOut Successful Response
+     * @throws ApiError
+     */
+    public static dashboardAlertsApiV1WorkspacesWorkspaceIdDashboardAlertsGet({
+        workspaceId,
+        limit = 50,
+        offset,
+    }: {
+        workspaceId: string,
+        limit?: number,
+        offset?: number,
+    }): CancelablePromise<DashboardAlertsOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workspaces/{workspace_id}/dashboard/alerts',
+            path: {
+                'workspace_id': workspaceId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
     /**
      * Dashboard Summary
      * @returns DashboardSummaryOut Successful Response

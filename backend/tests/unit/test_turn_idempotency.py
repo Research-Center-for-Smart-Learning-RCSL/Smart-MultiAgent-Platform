@@ -23,7 +23,7 @@ from typing import Any
 import pytest
 
 import contexts.agents.application.runtime.turn_engine as te
-from contexts.conversation.domain.models import ChatroomAgentRole
+from contexts.conversation.domain.models import ChatroomAgentRole, ClassroomRole
 
 
 class _FakeDB:
@@ -124,8 +124,10 @@ def _wire_precheck(
         def __init__(self, db: object) -> None:
             pass
 
-        async def role_of(self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> ChatroomAgentRole:
-            return ChatroomAgentRole.NORMAL
+        async def roles_of(
+            self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID
+        ) -> tuple[ChatroomAgentRole, ClassroomRole]:
+            return ChatroomAgentRole.NORMAL, ClassroomRole.NONE
 
     monkeypatch.setattr(te, "ChatroomAgentRepository", _BindingRepo)
 

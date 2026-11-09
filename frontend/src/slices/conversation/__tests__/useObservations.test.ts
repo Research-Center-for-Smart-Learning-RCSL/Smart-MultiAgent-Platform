@@ -60,10 +60,12 @@ vi.mock('@shared/stores/session', () => ({
 const listObservationsMock = vi.hoisted(() => vi.fn())
 const deleteObservationMock = vi.hoisted(() => vi.fn(async () => undefined))
 const releaseObservationMock = vi.hoisted(() => vi.fn())
+const recordAlertViewsMock = vi.hoisted(() => vi.fn(async () => undefined))
 vi.mock('../api', () => ({
   listObservations: listObservationsMock,
   deleteObservation: deleteObservationMock,
   releaseObservation: releaseObservationMock,
+  recordAlertViews: recordAlertViewsMock,
 }))
 
 import { useObservations } from '../composables/useObservations'
@@ -155,11 +157,71 @@ describe('useObservations', () => {
     listObservationsMock.mockResolvedValue([])
     deleteObservationMock.mockClear()
     releaseObservationMock.mockReset()
+    recordAlertViewsMock.mockClear()
   })
 
   afterEach(() => {
     wrapper?.unmount()
     wrapper = null
+  })
+
+  describe('alert views ([R34.02])', () => {
+    const alert = (id: string, seen: string | null = null): Observation => ({
+      ...makeObservation(id),
+      is_alert: true,
+      alert_reason: 'stuck',
+      first_viewed_at: seen,
+    })
+
+    function setVisibility(state: 'visible' | 'hidden'): void {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
+      document.dispatchEvent(new Event('visibilitychange'))
+    }
+
+    afterEach(() => setVisibility('visible'))
+
+    it('reports unseen alerts only once the panel is open', async () => {
+      listObservationsMock.mockResolvedValue([alert('a1'), makeObservation('o1'), alert('a2', '2024-01-01T00:00:01Z')])
+      const m = mountObs()
+      wrapper = m.wrapper
+      await flushPromises()
+      expect(recordAlertViewsMock).not.toHaveBeenCalled()
+
+      m.api.setPanelOpen(true)
+      await flushPromises()
+      expect(recordAlertViewsMock).toHaveBeenCalledTimes(1)
+      expect(recordAlertViewsMock).toHaveBeenCalledWith(ROOM, ['a1'], 'panel')
+
+      // A refetch carrying the same row does not report it again.
+      await m.api.refetch()
+      await flushPromises()
+      expect(recordAlertViewsMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('waits while the page is hidden', async () => {
+      setVisibility('hidden')
+      listObservationsMock.mockResolvedValue([alert('a1')])
+      const m = mountObs()
+      wrapper = m.wrapper
+      m.api.setPanelOpen(true)
+      await flushPromises()
+      expect(recordAlertViewsMock).not.toHaveBeenCalled()
+
+      setVisibility('visible')
+      await flushPromises()
+      expect(recordAlertViewsMock).toHaveBeenCalledWith(ROOM, ['a1'], 'panel')
+    })
+
+    it('an admin who is not the creator reports nothing', async () => {
+      sessionMe.value = { id: 'admin', is_admin: true }
+      listObservationsMock.mockResolvedValue([alert('a1')])
+      const m = mountObs()
+      wrapper = m.wrapper
+      m.api.setPanelOpen(true)
+      await flushPromises()
+      expect(m.api.observations.value).toHaveLength(1)
+      expect(recordAlertViewsMock).not.toHaveBeenCalled()
+    })
   })
 
   it('resolves isCreator by created_by match and admin', async () => {

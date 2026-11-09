@@ -2094,6 +2094,25 @@
         "title": "AgentCanvasWriteAccessIn",
         "type": "object"
       },
+      "AgentClassroomRoleIn": {
+        "properties": {
+          "classroom_role": {
+            "enum": [
+              "none",
+              "teacher",
+              "peer",
+              "analyst"
+            ],
+            "title": "Classroom Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "classroom_role"
+        ],
+        "title": "AgentClassroomRoleIn",
+        "type": "object"
+      },
       "AgentConceptMapCoverageEntryOut": {
         "description": "One Concept Map covering an agent (Phase 4\u03b1 R11.09, read-only).",
         "properties": {
@@ -3130,6 +3149,23 @@
               }
             ]
           },
+          "classroom_role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "teacher",
+                  "peer",
+                  "analyst"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classroom Role"
+          },
           "may_control_activities": {
             "anyOf": [
               {
@@ -3458,6 +3494,141 @@
         ],
         "title": "AgentToolType",
         "type": "string"
+      },
+      "AlertOut": {
+        "properties": {
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "alert_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert Reason"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "first_action_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Action At"
+          },
+          "first_action_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "released",
+                  "deleted",
+                  "room_message",
+                  "activity_started",
+                  "activity_ended"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Action Kind"
+          },
+          "first_viewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Viewed At"
+          },
+          "observation_id": {
+            "format": "uuid",
+            "title": "Observation Id",
+            "type": "string"
+          },
+          "room_id": {
+            "format": "uuid",
+            "title": "Room Id",
+            "type": "string"
+          },
+          "room_name": {
+            "title": "Room Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "observation_id",
+          "room_id",
+          "room_name",
+          "agent_name",
+          "alert_reason",
+          "created_at",
+          "first_viewed_at",
+          "first_action_at",
+          "first_action_kind"
+        ],
+        "title": "AlertOut",
+        "type": "object"
+      },
+      "AlertViewsIn": {
+        "properties": {
+          "observation_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Observation Ids",
+            "type": "array"
+          },
+          "via": {
+            "enum": [
+              "panel",
+              "dashboard"
+            ],
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "observation_ids",
+          "via"
+        ],
+        "title": "AlertViewsIn",
+        "type": "object"
       },
       "AllowlistAddIn": {
         "properties": {
@@ -6330,6 +6501,22 @@
           }
         },
         "title": "CustomCapabilitiesIn",
+        "type": "object"
+      },
+      "DashboardAlertsOut": {
+        "properties": {
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/AlertOut"
+            },
+            "title": "Alerts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "alerts"
+        ],
+        "title": "DashboardAlertsOut",
         "type": "object"
       },
       "DashboardSummaryOut": {
@@ -9375,6 +9562,17 @@
             "title": "Agent Id",
             "type": "string"
           },
+          "alert_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert Reason"
+          },
           "blocks": {
             "items": {
               "additionalProperties": true,
@@ -9403,10 +9601,37 @@
             ],
             "title": "Created At"
           },
+          "first_action_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Action At"
+          },
+          "first_viewed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Viewed At"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "is_alert": {
+            "default": false,
+            "title": "Is Alert",
+            "type": "boolean"
           },
           "metadata": {
             "additionalProperties": true,
@@ -22380,6 +22605,63 @@
         ]
       }
     },
+    "/api/chatrooms/{chatroom_id}/agents/{agent_id}/classroom-role": {
+      "patch": {
+        "description": "Set a binding's classroom role ([R34.01]).\n\nCreator-gated like every other authority decision about this room's bindings:\nthe role decides whose replies are held for review and who may notify whom.",
+        "operationId": "patch_chatroom_agent_classroom_role_api_chatrooms__chatroom_id__agents__agent_id__classroom_role_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentClassroomRoleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Patch Chatroom Agent Classroom Role",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
     "/api/chatrooms/{chatroom_id}/agents/{agent_id}/draft-access": {
       "patch": {
         "description": "Let one bound agent read this room's unsent text ([R32.03]).\n\n``ensure_room_creator``, matching every other authority decision about this\nroom's bindings. It is the strictest gate available and this is the surface that\nmost deserves it: what is being handed out is the ability to read text the people\nin this room have not chosen to send.\n\n**Its own route rather than a field on the role patch**, for the reason\n``activity-control`` is: a different authority with a different meaning, so the\naudit trail carries one action per decision and a role change cannot silently\ncarry a grant along with it.\n\nUnlike ``activity-control`` there is nothing to validate before writing \u2014 no\nallowlist, no cross-context resolution \u2014 because the read-time gates in\n``draft_tools`` are what bound this authority ([R32.04]). A grant is therefore\nexactly as narrow as the room's own activity types already are.",
@@ -24842,6 +25124,53 @@
           }
         },
         "summary": "List Observations",
+        "tags": [
+          "observations"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/observations/viewed": {
+      "post": {
+        "description": "The creator's client saw these alerts on an open, visible surface ([R34.02]).\n\nIds that are not alerts of this room, or were already seen, are ignored, so\nthe call is idempotent and reveals nothing about ids outside the room. An\nadmin passes the gate but is not the teacher, so their view records nothing.",
+        "operationId": "record_alert_views_api_chatrooms__chatroom_id__observations_viewed_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertViewsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Record Alert Views",
         "tags": [
           "observations"
         ]
@@ -35117,6 +35446,74 @@
         "summary": "Tus Patch",
         "tags": [
           "tus"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/dashboard/alerts": {
+      "get": {
+        "description": "Analyst alerts from the rooms the caller created ([R34.03]).\n\nAn alert is an observation, readable only by its room's creator ([R28.03]), so\na member who may open a room still sees none of its alerts here.",
+        "operationId": "dashboard_alerts_api_v1_workspaces__workspace_id__dashboard_alerts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 10000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardAlertsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Dashboard Alerts",
+        "tags": [
+          "dashboard"
         ]
       }
     },

@@ -893,6 +893,7 @@ def build_agent_tools(
     observation_block_sink: list[dict[str, Any]] | None = None,
     draft_access: DraftAccessContext | None = None,
     canvas_write: CanvasWriteContext | None = None,
+    observation_alert_sink: dict[str, Any] | None = None,
 ) -> list[Tool]:
     """Assemble the agent's enabled tools for one turn.
 
@@ -998,6 +999,7 @@ def build_agent_tools(
                 db,
                 presentation=observation_presentation,
                 block_sink=observation_block_sink,
+                alert_sink=observation_alert_sink,
             )
         )
     if draft_access is not None:

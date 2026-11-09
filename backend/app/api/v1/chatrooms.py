@@ -30,7 +30,7 @@ from contexts.conversation.domain.errors import (
     ChatroomNotFound,
     WorkspaceNotFound,
 )
-from contexts.conversation.domain.models import Chatroom, ChatroomAgentRole
+from contexts.conversation.domain.models import Chatroom, ChatroomAgentRole, ClassroomRole
 from contexts.conversation.interfaces import room_channel
 from contexts.conversation.interfaces.access import ensure_can_manage_guest_link
 from contexts.conversation.interfaces.author_labels import prefer_guest_label
@@ -184,10 +184,16 @@ class AgentRef(BaseModel):
     name: str | None = None
     # Response-side only; every reader sees normal bindings' appearance.
     bubble_color: ChatroomAgentBubbleColor | None = None
+    # [R34.01], creator-only and response-side only, like the grants above.
+    classroom_role: Literal["none", "teacher", "peer", "analyst"] | None = None
 
 
 class AgentRolePatchIn(BaseModel):
     role: Literal["normal", "observer"]
+
+
+class AgentClassroomRoleIn(BaseModel):
+    classroom_role: Literal["none", "teacher", "peer", "analyst"]
 
 
 class AgentAppearanceIn(BaseModel):
@@ -795,6 +801,7 @@ async def list_chatroom_agents(
             may_read_drafts=r.may_read_drafts if creator else None,
             may_read_canvas=r.may_read_canvas if creator else None,
             may_write_canvas=r.may_write_canvas if creator else None,
+            classroom_role=r.classroom_role.value if creator else None,
         )
         for r in rows
     ]
@@ -927,6 +934,49 @@ async def patch_chatroom_agent_role(
         room_visible=True,
         creator_user_id=access.chatroom.created_by_user_id,
     )
+
+
+@chatroom_router.patch(
+    "/{chatroom_id}/agents/{agent_id}/classroom-role",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def patch_chatroom_agent_classroom_role(
+    body: AgentClassroomRoleIn,
+    chatroom_id: uuid.UUID = Path(...),
+    agent_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """Set a binding's classroom role ([R34.01]).
+
+    Creator-gated like every other authority decision about this room's bindings:
+    the role decides whose replies are held for review and who may notify whom.
+    """
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_room_creator(access, principal=principal)
+    result = await ConversationFacade(db).set_agent_classroom_role(
+        chatroom_id=chatroom_id,
+        agent_id=agent_id,
+        classroom_role=ClassroomRole(body.classroom_role),
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    if result == "not_bound":
+        raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
+    if result == "mismatch":
+        raise HTTPException(
+            status_code=422,
+            detail="teacher and peer need a normal binding; analyst needs an observer binding",
+        )
+    if result == "teacher_taken":
+        raise HTTPException(status_code=409, detail="this chatroom already has a teacher agent")
+    if result == "written":
+        await _emit_chatroom_updated(
+            db, chatroom_id, room_visible=False, creator_user_id=access.chatroom.created_by_user_id
+        )
 
 
 @chatroom_router.patch(

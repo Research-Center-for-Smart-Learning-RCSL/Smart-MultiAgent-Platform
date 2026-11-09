@@ -215,3 +215,28 @@ describe('ObservationCard', () => {
     expect(many.find('.obs-card__body--clamped').exists()).toBe(true)
   })
 })
+
+describe('ObservationCard alert flag ([R34.02])', () => {
+  it('marks an alert and shows its reason as text', async () => {
+    const wrapper = await renderView(ObservationCard, {
+      props: {
+        observation: observation({ is_alert: true, alert_reason: '<b>group B stuck</b>' }),
+        agentName: 'AA',
+      },
+    })
+    expect(wrapper.classes()).toContain('obs-card--alert')
+    expect(wrapper.text()).toContain('conversation.observers.alert')
+    const reason = wrapper.find('.obs-card__alert-reason')
+    // Interpolated, never rendered as HTML.
+    expect(reason.text()).toBe('<b>group B stuck</b>')
+    expect(reason.find('b').exists()).toBe(false)
+  })
+
+  it('shows nothing extra for a routine observation', async () => {
+    const wrapper = await renderView(ObservationCard, {
+      props: { observation: observation(), agentName: 'AA' },
+    })
+    expect(wrapper.classes()).not.toContain('obs-card--alert')
+    expect(wrapper.find('.obs-card__alert').exists()).toBe(false)
+  })
+})

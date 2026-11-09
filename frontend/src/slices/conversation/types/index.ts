@@ -150,6 +150,12 @@ export interface Observation {
   release_target: ReleaseTarget | null
   released_by_user_id: string | null
   created_at: string | null
+  // [R34.02]. Optional because the server defaults them, and the fixtures and
+  // cached rows written before alerts existed carry none.
+  is_alert?: boolean
+  alert_reason?: string | null
+  first_viewed_at?: string | null
+  first_action_at?: string | null
 }
 
 // R28.13 — creator-only events on the /user/{id} channel.

@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AlertViewsIn } from '../models/AlertViewsIn';
 import type { ObservationOut } from '../models/ObservationOut';
 import type { ReleaseIn } from '../models/ReleaseIn';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -32,6 +33,36 @@ export class ObservationsService {
                 'before': before,
                 'limit': limit,
             },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Record Alert Views
+     * The creator's client saw these alerts on an open, visible surface ([R34.02]).
+     *
+     * Ids that are not alerts of this room, or were already seen, are ignored, so
+     * the call is idempotent and reveals nothing about ids outside the room. An
+     * admin passes the gate but is not the teacher, so their view records nothing.
+     * @returns void
+     * @throws ApiError
+     */
+    public static recordAlertViewsApiChatroomsChatroomIdObservationsViewedPost({
+        chatroomId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        requestBody: AlertViewsIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/observations/viewed',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },

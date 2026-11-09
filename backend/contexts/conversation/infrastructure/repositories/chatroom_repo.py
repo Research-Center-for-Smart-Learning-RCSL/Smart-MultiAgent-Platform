@@ -10,6 +10,7 @@ from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.errors import VersionMismatch
@@ -23,6 +24,7 @@ from contexts.conversation.domain.models import (
     ChatroomAgentBubbleColor,
     ChatroomAgentRole,
     ChatroomGuest,
+    ClassroomRole,
     DraftReadGrant,
 )
 from contexts.conversation.infrastructure import tables as t
@@ -449,6 +451,7 @@ class ChatroomAgentRepository:
                 may_read_canvas=bool(r.may_read_canvas),
                 may_write_canvas=bool(r.may_write_canvas),
                 wakeup=self._wakeup_state(r),
+                classroom_role=ClassroomRole(r.classroom_role),
             )
             for r in rows
         ]
@@ -522,6 +525,67 @@ class ChatroomAgentRepository:
         ).first()
         return ChatroomAgentRole(row.role) if row else None
 
+    async def roles_of(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> tuple[ChatroomAgentRole, ClassroomRole] | None:
+        """Both roles from one read, for a caller that must not see them disagree."""
+        row = (
+            await self._db.execute(
+                sa.select(t.chatroom_agents.c.role, t.chatroom_agents.c.classroom_role).where(
+                    sa.and_(
+                        t.chatroom_agents.c.chatroom_id == chatroom_id,
+                        t.chatroom_agents.c.agent_id == agent_id,
+                    )
+                )
+            )
+        ).first()
+        return (ChatroomAgentRole(row.role), ClassroomRole(row.classroom_role)) if row else None
+
+    async def locked_roles(
+        self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID
+    ) -> tuple[ChatroomAgentRole, ClassroomRole] | None:
+        row = (
+            await self._db.execute(
+                sa.select(t.chatroom_agents.c.role, t.chatroom_agents.c.classroom_role)
+                .where(
+                    t.chatroom_agents.c.chatroom_id == chatroom_id, t.chatroom_agents.c.agent_id == agent_id
+                )
+                .with_for_update()
+            )
+        ).first()
+        return (ChatroomAgentRole(row.role), ClassroomRole(row.classroom_role)) if row else None
+
+    async def set_classroom_role(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        expected_role: ChatroomAgentRole,
+        classroom_role: ClassroomRole,
+    ) -> bool:
+        """Write the classroom role, matching only while the binding role is still
+        ``expected_role``. Returns False when another teacher holds the room: the
+        one-teacher index (0110) is the authority, and a savepoint keeps its
+        violation from aborting the caller's transaction."""
+        stmt = (
+            t.chatroom_agents.update()
+            .where(
+                t.chatroom_agents.c.chatroom_id == chatroom_id,
+                t.chatroom_agents.c.agent_id == agent_id,
+                t.chatroom_agents.c.role == expected_role.value,
+            )
+            .values(classroom_role=classroom_role.value)
+        )
+        try:
+            async with self._db.begin_nested():
+                result = await self._db.execute(stmt)
+        except IntegrityError:
+            return False
+        return bool(result.rowcount)
+
     async def set_role(
         self,
         *,
@@ -555,6 +619,9 @@ class ChatroomAgentRepository:
             .values(
                 role=role.value,
                 bubble_color=None if role is ChatroomAgentRole.OBSERVER else t.chatroom_agents.c.bubble_color,
+                # [R34.01]: no classroom role fits both binding roles, and the 0110
+                # CHECK would refuse the row otherwise.
+                classroom_role=ClassroomRole.NONE.value,
                 binding_id=sa.func.gen_random_uuid(),
                 wakeup_room_overrides={},
                 wakeup_runtime_overrides={},

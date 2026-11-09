@@ -29,7 +29,7 @@ import pytest
 
 from contexts.conversation.application.access import RoomAccess
 from contexts.conversation.domain.errors import NotRoomCreator
-from contexts.conversation.domain.models import ChatroomAgentRole
+from contexts.conversation.domain.models import ChatroomAgentRole, ClassroomRole
 from shared_kernel.auth.permissions import Role
 from tests.unit.chatroom_fakes import chatroom_row
 
@@ -170,6 +170,7 @@ class TestWhichAgentIsTheCreatorsToKnow:
                         may_read_drafts=True,
                         may_read_canvas=False,
                         may_write_canvas=False,
+                        classroom_role=ClassroomRole.NONE,
                     )
                 ]
 

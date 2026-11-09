@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import assert_project_role, is_project_owner_or_admin
+from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.dashboard.interfaces.facade import DashboardFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
@@ -158,6 +159,65 @@ async def _resolve_workspace_rooms(
     await assert_project_role(db=db, principal=principal, project_id=workspace.project_id)
     rooms = await facade.visible_rooms_in_workspace(principal=principal, workspace_id=workspace_id)
     return workspace.project_id, {room.id: room.name for room in rooms}
+
+
+class AlertOut(BaseModel):
+    observation_id: uuid.UUID
+    room_id: uuid.UUID
+    room_name: str
+    agent_name: str | None
+    alert_reason: str | None
+    created_at: dt.datetime | None
+    first_viewed_at: dt.datetime | None
+    first_action_at: dt.datetime | None
+    first_action_kind: (
+        Literal["released", "deleted", "room_message", "activity_started", "activity_ended"] | None
+    )
+
+
+class DashboardAlertsOut(BaseModel):
+    alerts: list[AlertOut]
+
+
+@router.get("/{workspace_id}/dashboard/alerts")
+async def dashboard_alerts(
+    workspace_id: uuid.UUID = Path(...),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=10_000),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> DashboardAlertsOut:
+    """Analyst alerts from the rooms the caller created ([R34.03]).
+
+    An alert is an observation, readable only by its room's creator ([R28.03]), so
+    a member who may open a room still sees none of its alerts here."""
+    facade = ConversationFacade(db)
+    workspace = await facade.get_workspace(workspace_id)
+    if workspace is None or workspace.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    if await TenancyFacade(db).get_project(workspace.project_id) is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    await assert_project_role(db=db, principal=principal, project_id=workspace.project_id)
+    rooms = await facade.visible_rooms_in_workspace(principal=principal, workspace_id=workspace_id)
+    own = {r.id: r.name for r in rooms if principal.is_admin or r.created_by_user_id == principal.user_id}
+    rows = await facade.list_alerts_for_rooms(chatroom_ids=list(own), limit=limit, offset=offset)
+    names = await AgentsFacade(db).agent_names(list({r.agent_id for r in rows}))
+    return DashboardAlertsOut(
+        alerts=[
+            AlertOut(
+                observation_id=r.id,
+                room_id=r.chatroom_id,
+                room_name=own[r.chatroom_id],
+                agent_name=names.get(r.agent_id),
+                alert_reason=r.alert_reason,
+                created_at=r.created_at,
+                first_viewed_at=r.first_viewed_at,
+                first_action_at=r.first_action_at,
+                first_action_kind=r.first_action_kind.value if r.first_action_kind else None,
+            )
+            for r in rows
+        ]
+    )
 
 
 @router.get("/{workspace_id}/dashboard/summary")

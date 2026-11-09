@@ -16,6 +16,7 @@ from contexts.conversation.domain.models import (
     ChatroomAgentBubbleColor,
     ChatroomAgentRole,
     ChatroomGuest,
+    ClassroomRole,
 )
 from contexts.conversation.infrastructure.repositories import (
     ChatroomAgentRepository,
@@ -487,6 +488,49 @@ class ChatroomService:
                 )
             return True
         return False
+
+    async def set_agent_classroom_role(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        classroom_role: ClassroomRole,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> Literal["written", "unchanged", "not_bound", "mismatch", "teacher_taken"]:
+        """[R34.01]. The row lock holds the binding role still while the write
+        checks it, so the audit names a transition that actually committed."""
+        roles = await self._agents.locked_roles(chatroom_id=chatroom_id, agent_id=agent_id)
+        if roles is None:
+            return "not_bound"
+        role, old = roles
+        if old is classroom_role:
+            return "unchanged"
+        if not classroom_role.fits(role):
+            return "mismatch"
+        won = await self._agents.set_classroom_role(
+            chatroom_id=chatroom_id, agent_id=agent_id, expected_role=role, classroom_role=classroom_role
+        )
+        if not won:
+            return "teacher_taken"
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="chatroom.classroom_role_changed",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="chatroom_agent",
+                resource_id=chatroom_id,
+                metadata={
+                    "agent_id": str(agent_id),
+                    "old_classroom_role": old.value,
+                    "new_classroom_role": classroom_role.value,
+                },
+                request_id=request_id,
+            ),
+        )
+        return "written"
 
     async def set_agent_bubble_color(
         self,

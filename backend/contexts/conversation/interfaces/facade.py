@@ -32,12 +32,15 @@ from contexts.conversation.domain.models import (
     CLASS_START_MIN_PARTICIPANTS_RANGE,
     ActivityControlGrant,
     AgentObservation,
+    AlertActionKind,
+    AlertViewSurface,
     AttachmentExtractionStatus,
     AttachmentStatus,
     BindingWakeupState,
     Chatroom,
     ChatroomAgentBubbleColor,
     ChatroomAgentRole,
+    ClassroomRole,
     ClassStartConfig,
     ClassStartState,
     DraftReadGrant,
@@ -923,6 +926,28 @@ class ConversationFacade:
         """
         return await self._room_agents.room_has_draft_reader(chatroom_id)
 
+    async def set_agent_classroom_role(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        classroom_role: ClassroomRole,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> Literal["written", "unchanged", "not_bound", "mismatch", "teacher_taken"]:
+        """[R34.01]. The caller owns commit and the creator check."""
+        from contexts.conversation.application.chatroom_service import ChatroomService
+
+        return await ChatroomService(self._db).set_agent_classroom_role(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+            classroom_role=classroom_role,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     async def set_agent_draft_grant(
         self,
         *,
@@ -1007,6 +1032,49 @@ class ConversationFacade:
             chatroom_ids=chatroom_ids,
             created_after=created_after,
             created_before=created_before,
+        )
+
+    async def list_alerts_for_rooms(
+        self,
+        *,
+        chatroom_ids: Sequence[uuid.UUID],
+        include_deleted: bool = False,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> Sequence[AgentObservation]:
+        """Alert observations of a set of rooms, newest first ([R34.02], [R34.03]).
+
+        The caller decides which rooms the reader may see; alert content follows
+        observation confidentiality ([R28.03])."""
+        from contexts.conversation.application.observation_service import ObservationService
+
+        return await ObservationService(self._db).list_alerts(
+            chatroom_ids=chatroom_ids, include_deleted=include_deleted, limit=limit, offset=offset
+        )
+
+    async def record_alert_views(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        observation_ids: Sequence[uuid.UUID],
+        via: AlertViewSurface,
+    ) -> int:
+        """[R34.02]. A no-op unless the actor created the room. The caller owns commit."""
+        from contexts.conversation.application.observation_service import ObservationService
+
+        return await ObservationService(self._db).record_views(
+            chatroom_id=chatroom_id, actor_user_id=actor_user_id, observation_ids=observation_ids, via=via
+        )
+
+    async def record_alert_room_action(
+        self, *, chatroom_id: uuid.UUID, actor_user_id: uuid.UUID, kind: AlertActionKind
+    ) -> int:
+        """[R34.02]. A no-op unless the actor created the room. The caller owns commit."""
+        from contexts.conversation.application.observation_service import ObservationService
+
+        return await ObservationService(self._db).record_room_action(
+            chatroom_id=chatroom_id, actor_user_id=actor_user_id, kind=kind
         )
 
     async def list_messages_for_rooms(

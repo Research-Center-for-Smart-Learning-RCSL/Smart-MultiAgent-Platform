@@ -7,6 +7,7 @@ export type AgentRef = {
     activity_type_allowlist?: (Array<string> | null);
     agent_id: string;
     bubble_color?: (ChatroomAgentBubbleColor | null);
+    classroom_role?: ('none' | 'teacher' | 'peer' | 'analyst' | null);
     may_control_activities?: (boolean | null);
     may_read_canvas?: (boolean | null);
     may_read_drafts?: (boolean | null);

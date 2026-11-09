@@ -71,7 +71,7 @@ from contexts.agents.infrastructure.turn_lock import turn_lock
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.message_service import MessageService
 from contexts.conversation.application.observation_service import ObservationService
-from contexts.conversation.domain.models import ChatroomAgentRole
+from contexts.conversation.domain.models import ChatroomAgentRole, ClassroomRole
 from contexts.conversation.infrastructure.repositories import (
     ChatroomAgentRepository,
     MessageRepository,
@@ -2147,6 +2147,8 @@ class TurnEngine:
         activation_event_sink: list[dict[str, Any]] | None = None,
         is_observer: bool = False,
         observation_block_sink: list[dict[str, Any]] | None = None,
+        is_analyst: bool = False,
+        observation_alert_sink: dict[str, Any] | None = None,
     ) -> list[Tool]:
         """Assemble the sandbox (``code_exec`` / ``file``) + ``web_search`` built-in
         tools and the agent's bound MCP tools for this turn (K.5).
@@ -2212,7 +2214,7 @@ class TurnEngine:
                 None
                 if chatroom_id is None
                 else await resolve_observation_presentation(
-                    self._db, chatroom_id=chatroom_id, is_observer=is_observer
+                    self._db, chatroom_id=chatroom_id, is_observer=is_observer, is_analyst=is_analyst
                 )
             )
             # No `chatroom_id is None` guard of its own: unlike the two above,
@@ -2242,6 +2244,7 @@ class TurnEngine:
                 activation_event_sink=activation_event_sink,
                 observation_presentation=observation_presentation,
                 observation_block_sink=observation_block_sink,
+                observation_alert_sink=observation_alert_sink,
                 draft_access=draft_access,
                 canvas_write=canvas_write,
             )
@@ -3146,12 +3149,16 @@ class TurnEngine:
         # AuthZ tap: re-validate the agent↔room binding at turn start (defends
         # against an unbind racing the trigger). The same query resolves the
         # binding role — observers (R28.01) differ only in output routing.
-        role = await ChatroomAgentRepository(self._db).role_of(chatroom_id=chatroom_id, agent_id=agent_id)
-        if role is None:
+        # One read for both roles, so the routing and the classroom role ([R34.01])
+        # cannot come from different moments.
+        roles = await ChatroomAgentRepository(self._db).roles_of(chatroom_id=chatroom_id, agent_id=agent_id)
+        if roles is None:
             if trigger in EXPLICIT_TRIGGERS:
                 await emit_agent_finished_error(chatroom_id, agent_id, "not_bound")
             return TurnResult(status="skipped", reason="not_bound")
+        role, classroom_role = roles
         is_observer = role is ChatroomAgentRole.OBSERVER
+        is_analyst = is_observer and classroom_role is ClassroomRole.ANALYST
         # Replay short-circuit (F-7). A turn is not retry-safe: it commits its
         # reply with post-commit work still to run. `max_tries=1` stops arq
         # replaying the job, but not a turn that ran twice because its lock
@@ -3306,6 +3313,8 @@ class TurnEngine:
             # than appended to by the tool: the last call in a turn is the
             # observation. Drained below, after the stream and before the record.
             observation_blocks: list[dict[str, Any]] = []
+            # [R34.02]: an analyst's alert flag, set by the same call as the blocks.
+            observation_alert: dict[str, Any] = {}
             extra_tools = extra_tools + await self._builtin_tools(
                 agent,
                 agent_tools,
@@ -3314,6 +3323,8 @@ class TurnEngine:
                 activation_event_sink=activation_events,
                 is_observer=is_observer,
                 observation_block_sink=observation_blocks,
+                is_analyst=is_analyst,
+                observation_alert_sink=observation_alert,
             )
             # Resolved once and shared by both consumers below so they see the
             # same snapshot (see _resolve_trigger_attachments docstring).
@@ -3900,6 +3911,8 @@ class TurnEngine:
                     trigger_message_id=trigger_message_id,
                     metadata=reply_meta,
                     blocks=observation_blocks or None,
+                    is_alert=bool(observation_alert.get("alert")),
+                    alert_reason=observation_alert.get("reason"),
                 )
                 await self._audit(
                     agent,

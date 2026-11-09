@@ -21,6 +21,21 @@
     "noValidityData": "No submissions yet",
     "stalledRooms": "Stalled rooms",
     "participantsNeedAttention": "Participants needing attention",
+    "alerts": {
+      "title": "Analyst alerts",
+      "openCount": "{count} open",
+      "new": "New",
+      "seen": "Seen",
+      "noReason": "No reason given",
+      "unknownAgent": "Unknown agent",
+      "action": {
+        "released": "Released",
+        "deleted": "Deleted",
+        "room_message": "You replied in the room",
+        "activity_started": "You started an activity",
+        "activity_ended": "You ended an activity"
+      }
+    },
     "classSummary": "Class summary",
     "attentionRequired": "Rooms need attention",
     "noStalledRooms": "All rooms are on track.",

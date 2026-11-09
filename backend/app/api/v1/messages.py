@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.attachments import AttachmentOut, to_attachment_out
 from app.api.v1.deps import require_if_match
+from app.wiring.alert_reactions import AlertActionKind, record_alert_reaction
 from contexts.conversation.application.access import (
     RoomAccess,
     ensure_can_read,
@@ -216,6 +217,10 @@ async def send_message(
         )
     except Exception:
         _log.error("realtime publish failed for message.created %s", msg.id, exc_info=True)
+    if not principal.is_guest:
+        await record_alert_reaction(
+            db, chatroom_id=chatroom_id, actor_user_id=principal.user_id, kind=AlertActionKind.ROOM_MESSAGE
+        )
     # Fetch the room's agent binding once and share it across both wake-up
     # evaluations (every_n + @mention) so a mention send issues one query, not two.
     # Rows (id + role), not bare ids — the every_n evaluator flags observer

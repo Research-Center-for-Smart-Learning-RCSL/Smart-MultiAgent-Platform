@@ -58,6 +58,7 @@ from contexts.agents.application.runtime.observation_blocks import (
     structural_violations,
 )
 from contexts.agents.application.runtime.tool_registry import Tool, ToolResult, clip_tool_output
+from contexts.conversation.domain.models import ALERT_REASON_MAX_CHARS
 from contexts.conversation.interfaces.facade import ConversationFacade
 
 logger = logging.getLogger(__name__)
@@ -85,10 +86,12 @@ class ObservationPresentationContext:
     chatroom_id: uuid.UUID
     project_id: uuid.UUID
     types_by_key: dict[str, ActivityType]
+    #: [R34.02]: only an analyst binding may flag an observation as an alert.
+    is_analyst: bool = False
 
 
 async def resolve_observation_presentation(
-    db: AsyncSession, *, chatroom_id: uuid.UUID, is_observer: bool
+    db: AsyncSession, *, chatroom_id: uuid.UUID, is_observer: bool, is_analyst: bool = False
 ) -> ObservationPresentationContext | None:
     """This turn's presentation context, or ``None``.
 
@@ -115,6 +118,7 @@ async def resolve_observation_presentation(
             chatroom_id=chatroom_id,
             project_id=project_id,
             types_by_key=await _reachable_types(db, project_id=project_id),
+            is_analyst=is_analyst,
         )
     except Exception:
         logger.warning(
@@ -144,6 +148,7 @@ def build_present_observation_tool(
     *,
     presentation: ObservationPresentationContext,
     block_sink: list[dict[str, Any]] | None = None,
+    alert_sink: dict[str, Any] | None = None,
 ) -> Tool:
     """The tool for one observer turn ([R28.16]).
 
@@ -161,6 +166,8 @@ def build_present_observation_tool(
         mandala_keys=mandala_keys,
         table_keys=coverage_keys,
     )
+    if presentation.is_analyst:
+        schema = _with_alert_arguments(schema)
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
         def refuse(reasons: list[str]) -> ToolResult:
@@ -193,16 +200,24 @@ def build_present_observation_tool(
             # and `schema_violations` strips `pattern` outright.
             return refuse(["these blocks render to nothing at all"])
 
+        alert = presentation.is_analyst and bool(args.get("alert"))
+        reason = str(args.get("alert_reason") or "").strip()[:ALERT_REASON_MAX_CHARS] if alert else ""
         if block_sink is not None:
             # Last call wins: the sink is replaced, not appended to, so a model
             # that revises its layout does not end up with both versions stacked.
             block_sink.clear()
             block_sink.extend(filled)
+        if alert_sink is not None:
+            # Replaced with the blocks, so a later call without the flag withdraws it.
+            alert_sink.clear()
+            if alert:
+                alert_sink.update({"alert": True, "reason": reason or None})
         computed = sum(1 for b in filled if b.get("kind") in _COMPUTED)
         return ToolResult(
             content=clip_tool_output(
                 f"Recorded {len(filled)} block(s) for this observation"
                 + (f", {computed} of them filled in from room data" if computed else "")
+                + (", flagged as an alert for the teacher" if alert else "")
                 + ". Calling this again replaces them; the last call is what the teacher sees."
             )
         )
@@ -216,6 +231,25 @@ def build_present_observation_tool(
 
 
 _COMPUTED = frozenset({FIELD_COVERAGE, MANDALA_GRID, ATTEMPT_TABLE})
+
+
+def _with_alert_arguments(schema: dict[str, Any]) -> dict[str, Any]:
+    """The analyst's schema: the same blocks plus the alert flag ([R34.02])."""
+    properties = dict(schema.get("properties") or {})
+    properties["alert"] = {
+        "type": "boolean",
+        "description": (
+            "True when this observation needs the teacher's attention now, for example a "
+            "group that is stuck or an agent that said something wrong. Leave it out for "
+            "routine observations."
+        ),
+    }
+    properties["alert_reason"] = {
+        "type": "string",
+        "maxLength": ALERT_REASON_MAX_CHARS,
+        "description": "One short sentence saying why, shown to the teacher next to the alert.",
+    }
+    return {**schema, "properties": properties}
 
 
 def _declared_count(activity_type: ActivityType) -> int:

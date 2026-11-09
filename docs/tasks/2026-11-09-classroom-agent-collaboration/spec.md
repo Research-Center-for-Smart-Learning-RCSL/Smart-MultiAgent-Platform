@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-11-09
 requirements: [R28.01, R28.03, R28.07, R28.13, R28.16, R33.02, R33.10, R13.72, R15.09, R29.01]
 depends_on: []
@@ -180,12 +180,12 @@ This change adds agent tools and LLM prompt surfaces, so Part F of `check-securi
 ## 11. Acceptance Criteria
 
 **M1**
-- [ ] AC-1: A room manager can set a binding's classroom role; a second teacher in the same room, a peer or teacher on an observer binding, and an analyst on a normal binding are rejected with a problem response; switching a binding between normal and observer resets its classroom role.
-- [ ] AC-2: An analyst's `present_observation` call with `alert: true` stores `is_alert` and `alert_reason`; a non-analyst observer is not offered the alert arguments.
-- [ ] AC-3: Reporting a view for an alert sets `first_viewed_at` and `first_viewed_via` once; a second report, a report by a non-creator, and a report for another room's observation leave it unchanged.
-- [ ] AC-4: The first of release, delete, the creator's next room message, or the creator's next activity start or end in the room sets `first_action_at` and `first_action_kind` on every open alert in that room raised before it, and later actions do not change it.
-- [ ] AC-5: The dashboard alerts list shows only alerts from rooms the caller created (all for an admin), and shown alerts are reported as viewed with `via = dashboard`.
-- [ ] AC-6: The research export contains `alerts.csv` with the columns in §5, manifest `schema_version` 3, and no full UUID or display name.
+- [x] AC-1: A room manager can set a binding's classroom role; a second teacher in the same room, a peer or teacher on an observer binding, and an analyst on a normal binding are rejected with a problem response; switching a binding between normal and observer resets its classroom role.
+- [x] AC-2: An analyst's `present_observation` call with `alert: true` stores `is_alert` and `alert_reason`; a non-analyst observer is not offered the alert arguments.
+- [x] AC-3: Reporting a view for an alert sets `first_viewed_at` and `first_viewed_via` once; a second report, a report by a non-creator, and a report for another room's observation leave it unchanged.
+- [x] AC-4: The first of release, delete, the creator's next room message, or the creator's next activity start or end in the room sets `first_action_at` and `first_action_kind` on every open alert in that room raised before it, and later actions do not change it.
+- [x] AC-5: The dashboard alerts list shows only alerts from rooms the caller created (all for an admin), and shown alerts are reported as viewed with `via = dashboard`.
+- [x] AC-6: The research export contains `alerts.csv` with the columns in §5, manifest `schema_version` 3, and no full UUID or display name.
 
 **M2**
 - [ ] AC-7: An analyst binding in a room with a teacher binding is offered `notify_teacher_agent`; without a teacher binding, or on a non-analyst binding, it is not.
@@ -249,7 +249,14 @@ Amendment to **[R33.10]**, appended to the end of the requirement:
 
 Appended by /build. Empty means the implementation matches this spec exactly.
 
+- D-1 (M1): The classroom role is written and read by the room creator only (`ensure_room_creator`), not by any room manager as AC-1 words it. The analyst role sits on an observer binding, and every observer surface is creator-only under [R28.02]; letting a project editor set or see it would disclose the observer layout to a reader the rest of the platform withholds it from. AC-1 is verified against the creator.
+- D-2 (M1): The dashboard alerts list is assembled in the route (`backend/app/api/v1/dashboard.py`) from the conversation facade and `AgentsFacade.agent_names`, not inside the dashboard context. Alerts are conversation data, and the dashboard context does not read observations today; routing them through it would add a cross-context dependency for a single read.
+- D-3 (M1): A view is recorded only when the reporter is the literal room creator. The viewed route's creator gate also admits an admin, and an admin's view standing in for the teacher's would corrupt the RQ2 measure; this is the same rule the first-action path already applies. The frontend observer panel skips the request for anyone but the literal creator; the dashboard still sends it for an admin and the server ignores it.
+
 ## 16. Follow-ups
 
 - FU-1: Reaction-time summaries on the dashboard.
-- FU-2: Pre-existing debt in touched files: route-level `AgentService` call in `backend/app/api/v1/agents.py:803`; `turn_engine.py` size; `pending_notify` non-durability for the other notes it carries (released observations, approval ballots).
+- FU-2: Pre-existing debt in touched files: route-level `AgentService` call in `backend/app/api/v1/agents.py:803`; `turn_engine.py` size; `pending_notify` non-durability for the other notes it carries (released observations, approval ballots). The M1 audit adds two of the same kind: `turn_engine.py` reaches the conversation context's infrastructure repositories directly (now including `roles_of`), and `app/api/v1/observations.py` imports conversation application modules instead of the facade.
+- FU-3: The research export loads every alert in the exported rooms and applies the date window in Python (`_in_range` in `app/workers/tasks/conversation.py`); push `created_after`/`created_before` into `list_alerts_for_rooms` as the message and observation queries already do.
+- FU-4: The dashboard alerts route decides which rooms an alert reader may see (`app/api/v1/dashboard.py`); move that rule behind a conversation facade method.
+- FU-5: `alert_reason` is model-written and can be steered by room participants; consider labelling it as the analyst's wording in the teacher UI.

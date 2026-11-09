@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import datetime
 from io import BytesIO
 from typing import Any
 
@@ -363,6 +364,13 @@ async def compact_chatroom(ctx: dict[str, Any], chatroom_id: str) -> str:
         return "completed" if ran else "failed"
 
 
+def _in_range(at: datetime | None, after: datetime | None, before: datetime | None) -> bool:
+    """The export's date window, applied the way the other row queries apply it."""
+    if at is None:
+        return after is None and before is None
+    return (after is None or at >= after) and (before is None or at < before)
+
+
 async def research_data_export(
     ctx: dict[str, Any],
     job_id: str,
@@ -378,6 +386,7 @@ async def research_data_export(
     from contexts.agents.interfaces.facade import AgentsFacade
     from contexts.conversation.application import research_export_access, research_export_service
     from contexts.conversation.application.research_export_builder import (
+        AlertRow,
         MessageRow,
         ObservationRow,
         ResearchExportBuilder,
@@ -481,9 +490,28 @@ async def research_data_export(
                 for m in raw_msgs
             ]
 
+            raw_alerts = await conv_facade.list_alerts_for_rooms(chatroom_ids=room_ids, include_deleted=True)
+            alerts = [
+                AlertRow(
+                    chatroom_id=a.chatroom_id,
+                    agent_id=a.agent_id,
+                    alert_reason=a.alert_reason,
+                    created_at=a.created_at,
+                    first_viewed_at=a.first_viewed_at,
+                    first_viewed_via=a.first_viewed_via.value if a.first_viewed_via else None,
+                    first_action_at=a.first_action_at,
+                    first_action_kind=a.first_action_kind.value if a.first_action_kind else None,
+                    deleted=a.deleted_at is not None,
+                )
+                for a in raw_alerts
+                if _in_range(a.created_at, state.created_after, state.created_before)
+            ]
+
             agent_ids: set[uuid.UUID] = set()
             for o in observations:
                 agent_ids.add(o.agent_id)
+            for a in alerts:
+                agent_ids.add(a.agent_id)
             for m in messages:
                 if m.sender_type == "agent" and m.sender_id:
                     agent_ids.add(m.sender_id)
@@ -504,6 +532,7 @@ async def research_data_export(
                 created_after=state.created_after,
                 created_before=state.created_before,
                 actor_ip=state.actor_ip,
+                alerts=alerts,
             )
 
         if not await research_export_service.mark_ready(
