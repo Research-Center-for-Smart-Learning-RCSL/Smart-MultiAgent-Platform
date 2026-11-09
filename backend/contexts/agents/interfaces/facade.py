@@ -21,7 +21,23 @@ if TYPE_CHECKING:
     # the two example methods import the service inside their own bodies.
     from contexts.agents.application.example_service import CataloguePack, PackInstallReport
 
-from contexts.agents.domain.errors import AgentVersionMismatch
+from contexts.agents.domain.classroom_design import (
+    DESIGN_UNAVAILABLE,
+    MAX_FORM_NOTES_CHARS,
+    MAX_ROUNDS,
+    MIN_ROUNDS,
+    ClassroomDesignRun,
+    DesignActivity,
+    DesignForm,
+    DesignProposal,
+    DesignRunStatus,
+    Difficulty,
+    PeerErrorPattern,
+    PromptRevision,
+    PromptRevisionSource,
+    Tone,
+)
+from contexts.agents.domain.errors import AgentNotFound, AgentVersionMismatch
 from contexts.agents.domain.model_specs import capability_fields, resolve_spec
 from contexts.agents.domain.models import (
     Agent,
@@ -39,14 +55,29 @@ from contexts.agents.infrastructure.repositories import (
 )
 
 __all__ = [
+    "DESIGN_UNAVAILABLE",
+    "MAX_FORM_NOTES_CHARS",
+    "MAX_ROUNDS",
+    "MIN_ROUNDS",
     "Agent",
     "AgentDraft",
+    "AgentNotFound",
     "AgentTool",
     "AgentVersionMismatch",
     "AgentsFacade",
     "ChatModelCatalogEntry",
+    "ClassroomDesignRun",
+    "DesignActivity",
+    "DesignForm",
+    "DesignProposal",
+    "DesignRunStatus",
+    "Difficulty",
     "EgressResponse",
     "McpInvokeResult",
+    "PeerErrorPattern",
+    "PromptRevision",
+    "PromptRevisionSource",
+    "Tone",
     "WorkspaceFile",
 ]
 
@@ -184,6 +215,7 @@ class AgentsFacade:
         expected_version: int,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
     ) -> Agent:
         """Delegate to ``AgentService.patch`` for wakeup-config updates.
 
@@ -199,7 +231,96 @@ class AgentsFacade:
             expected_version=expected_version,
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
+            request_id=request_id,
         )
+
+    # ------------------------------------------------------------------
+    # Prompt revisions and classroom design runs ([R34.07], [R34.08])
+    # ------------------------------------------------------------------
+
+    async def list_prompt_revisions(
+        self, agent_id: uuid.UUID, *, limit: int, offset: int
+    ) -> Sequence[PromptRevision]:
+        from contexts.agents.application.agent_service import AgentService
+
+        return await AgentService(self._db).list_prompt_revisions(agent_id, limit=limit, offset=offset)
+
+    async def restore_prompt_revision(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        revision_id: uuid.UUID,
+        expected_version: int,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> Agent:
+        """Never commits."""
+        from contexts.agents.application.agent_service import AgentService
+
+        return await AgentService(self._db).restore_prompt_revision(
+            agent_id=agent_id,
+            revision_id=revision_id,
+            expected_version=expected_version,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def create_design_run(
+        self, *, project_id: uuid.UUID, form: DesignForm, actor_user_id: uuid.UUID
+    ) -> ClassroomDesignRun:
+        """Never commits; the caller enqueues ``run_classroom_design`` after it does."""
+        from contexts.agents.application.classroom_design_service import ClassroomDesignService
+
+        return await ClassroomDesignService(self._db).create_run(
+            project_id=project_id, form=form, actor_user_id=actor_user_id
+        )
+
+    async def get_design_run(self, *, project_id: uuid.UUID, run_id: uuid.UUID) -> ClassroomDesignRun:
+        from contexts.agents.application.classroom_design_service import ClassroomDesignService
+
+        return await ClassroomDesignService(self._db).get_run(project_id=project_id, run_id=run_id)
+
+    async def list_design_runs(self, project_id: uuid.UUID, *, limit: int) -> Sequence[ClassroomDesignRun]:
+        from contexts.agents.application.classroom_design_service import ClassroomDesignService
+
+        return await ClassroomDesignService(self._db).list_runs(project_id, limit=limit)
+
+    async def apply_design(
+        self,
+        *,
+        project_id: uuid.UUID,
+        run_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> tuple[Agent, Agent]:
+        """Both target agents after the write. Never commits; roll back on error."""
+        from contexts.agents.application.classroom_design_service import ClassroomDesignService
+
+        return await ClassroomDesignService(self._db).apply(
+            project_id=project_id,
+            run_id=run_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def begin_design_run(self, run_id: uuid.UUID) -> ClassroomDesignRun | None:
+        from contexts.agents.application.classroom_design_service import ClassroomDesignService
+
+        return await ClassroomDesignService(self._db).begin(run_id)
+
+    async def record_design_success(self, run_id: uuid.UUID, proposal: DesignProposal) -> bool:
+        from contexts.agents.application.classroom_design_service import ClassroomDesignService
+
+        return await ClassroomDesignService(self._db).record_success(run_id, proposal)
+
+    async def record_design_failure(self, run_id: uuid.UUID, reason: str) -> bool:
+        from contexts.agents.application.classroom_design_service import ClassroomDesignService
+
+        return await ClassroomDesignService(self._db).record_failure(run_id, reason)
 
     async def detach_agents_colliding_with_knowmap_builder(
         self,

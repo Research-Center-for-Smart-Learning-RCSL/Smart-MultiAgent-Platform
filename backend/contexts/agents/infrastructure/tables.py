@@ -124,4 +124,91 @@ agent_workspace_files = sa.Table(
 )
 
 
-__all__ = ["agent_tools", "agent_workspace_files", "agents"]
+# CHECK constraints and the one-in-flight partial unique index live in
+# migration 0113; the repositories rely on the database to enforce them.
+classroom_design_runs = sa.Table(
+    "classroom_design_runs",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "project_id", pg.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column(
+        "requested_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column(
+        "design_agent_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "teacher_agent_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "peer_agent_id", pg.UUID(as_uuid=True), sa.ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column("params", pg.JSONB, nullable=False),
+    sa.Column("teacher_prompt_before", sa.Text, nullable=False),
+    sa.Column("teacher_version_before", sa.Integer, nullable=False),
+    sa.Column("peer_prompt_before", sa.Text, nullable=False),
+    sa.Column("peer_version_before", sa.Integer, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'pending'")),
+    sa.Column("proposed_teacher_prompt", sa.Text, nullable=True),
+    sa.Column("proposed_peer_prompt", sa.Text, nullable=True),
+    sa.Column("notes", sa.Text, nullable=True),
+    sa.Column("failure_reason", sa.Text, nullable=True),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("finished_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column("applied_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column(
+        "applied_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+)
+
+
+agent_prompt_revisions = sa.Table(
+    "agent_prompt_revisions",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "agent_id", pg.UUID(as_uuid=True), sa.ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column("agent_version", sa.Integer, nullable=False),
+    sa.Column("system_prompt", sa.Text, nullable=False),
+    sa.Column("source", sa.Text, nullable=False),
+    sa.Column(
+        "actor_user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    ),
+    sa.Column(
+        "design_run_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("classroom_design_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column(
+        "restored_from_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("agent_prompt_revisions.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+)
+
+
+__all__ = [
+    "agent_prompt_revisions",
+    "agent_tools",
+    "agent_workspace_files",
+    "agents",
+    "classroom_design_runs",
+]
