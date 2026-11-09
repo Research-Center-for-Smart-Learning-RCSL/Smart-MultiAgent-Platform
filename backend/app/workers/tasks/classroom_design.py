@@ -15,6 +15,7 @@ from typing import Any
 
 from loguru import logger
 
+from app.workers.tasks._agent_call import AgentCallFailed, AgentCallFailure, call_agent_once, resolve_agent
 from contexts.agents.domain.classroom_design import (
     DESIGN_MISCONFIGURED,
     DESIGN_TIMEOUT,
@@ -40,55 +41,30 @@ class _DesignFailed(Exception):
 
 async def _call_design_agent(db: Any, run: ClassroomDesignRun) -> DesignProposal:
     from contexts.agents.interfaces.facade import AgentsFacade
-    from contexts.keys.application.provider_router import ProviderRequest
-    from contexts.keys.domain.errors import KeyGroupExhausted
-    from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
-    from contexts.keys.infrastructure.adapters import build_router
 
     agents = AgentsFacade(db)
-    agent = await agents.get_agent(run.design_agent_id)
-    # Checked at submit; this holds if the agent was deleted or moved since.
-    if agent is None or agent.project_id != run.project_id:
-        raise _DesignFailed(DESIGN_MISCONFIGURED)
-    provider = ApiKeyProvider(agent.model_hint.value)
-    model = agent.model_id
-    if not model:
-        entry = next((c for c in agents.chat_model_catalog() if c.provider == provider.value), None)
-        model = entry.default if entry is not None else None
-    if not model:
-        raise _DesignFailed(DESIGN_MISCONFIGURED)
-
-    system, user = build_design_prompt(
-        design_system_prompt=agent.system_prompt,
-        params=run.params,
-        teacher_prompt=run.teacher_prompt_before,
-        peer_prompt=run.peer_prompt_before,
-    )
-    payload: dict[str, Any] = {
-        "model": model,
-        "system": system,
-        "messages": [{"role": "user", "content": user}],
-        "max_tokens": MAX_OUTPUT_TOKENS,
-    }
-    payload.update(agents.chat_model_capabilities(provider.value, model))
-    request = ProviderRequest(
-        capability=ProviderCapability.LLM_CHAT,
-        payload=payload,
-        agent_id=agent.id,
-        provider=provider,
-        usage_context="classroom_design",
-    )
     try:
-        result = await build_router(db).call(group_id=agent.key_group_id, request=request)
-    except KeyGroupExhausted as exc:
-        raise _DesignFailed(DESIGN_UNAVAILABLE) from exc
-    except Exception as exc:
-        # Only the class: a provider message can echo the prompts.
-        logger.bind(run_id=str(run.id)).warning(f"design call failed: {type(exc).__name__}")
-        raise _DesignFailed(DESIGN_UNAVAILABLE) from exc
-    text = result.body.get("text") if isinstance(result.body, dict) else None
-    if result.http_status != 200 or not isinstance(text, str):
-        raise _DesignFailed(DESIGN_UNAVAILABLE)
+        target = await resolve_agent(agents, run.design_agent_id, run.project_id)
+        system, user = build_design_prompt(
+            design_system_prompt=target.agent.system_prompt,
+            params=run.params,
+            teacher_prompt=run.teacher_prompt_before,
+            peer_prompt=run.peer_prompt_before,
+        )
+        text = await call_agent_once(
+            db,
+            agents,
+            target,
+            system=system,
+            user=user,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            usage_context="classroom_design",
+            log={"run_id": str(run.id)},
+        )
+    except AgentCallFailed as exc:
+        raise _DesignFailed(
+            DESIGN_MISCONFIGURED if exc.failure is AgentCallFailure.MISCONFIGURED else DESIGN_UNAVAILABLE
+        ) from exc
     try:
         return parse_design_reply(text)
     except DesignOutputInvalid as exc:

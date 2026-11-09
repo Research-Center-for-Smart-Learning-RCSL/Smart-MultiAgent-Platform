@@ -17,6 +17,7 @@ from typing import Any
 
 from loguru import logger
 
+from app.workers.tasks._agent_call import AgentCallFailed, AgentCallFailure, call_agent_once, resolve_agent
 from contexts.activities.application.validators.base import (
     ValidatorUnavailable,
     result_from_json,
@@ -230,63 +231,38 @@ async def _call_judge(db: Any, item: SubmissionForJudging) -> tuple[dict[str, An
     through :func:`parse_judgement`.
     """
     from contexts.agents.interfaces.facade import AgentsFacade
-    from contexts.keys.application.provider_router import ProviderRequest
-    from contexts.keys.domain.errors import KeyGroupExhausted
-    from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
-    from contexts.keys.infrastructure.adapters import build_router
 
     config = item.creativity_scoring
     if config is None:
         raise _JudgeFailed(JUDGE_MISCONFIGURED)
     agents = AgentsFacade(db)
-    agent = await agents.get_agent(judge_agent_id(config))
-    # Checked at configuration time too; this is the line that holds if the agent
-    # was deleted or the row got in another way.
-    if agent is None or agent.project_id != item.project_id:
-        raise _JudgeFailed(JUDGE_MISCONFIGURED)
-
-    provider = ApiKeyProvider(agent.model_hint.value)
-    model = agent.model_id
-    if not model:
-        entry = next((c for c in agents.chat_model_catalog() if c.provider == provider.value), None)
-        model = entry.default if entry is not None else None
-    if not model:
-        raise _JudgeFailed(JUDGE_MISCONFIGURED)
-
     try:
-        system, user = build_judge_prompt(
-            rubric=config["rubric"], payload=item.payload, payload_schema=item.payload_schema
+        target = await resolve_agent(agents, judge_agent_id(config), item.project_id)
+        # Built before the call so an oversized answer is skipped without billing.
+        try:
+            system, user = build_judge_prompt(
+                rubric=config["rubric"], payload=item.payload, payload_schema=item.payload_schema
+            )
+        except JudgeAnswerTooLarge as exc:
+            raise _JudgeFailed(SKIP_ANSWER_TOO_LARGE, JudgeStatus.SKIPPED) from exc
+        text = await call_agent_once(
+            db,
+            agents,
+            target,
+            system=system,
+            user=user,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            usage_context="activity_judge",
+            log={"submission_id": str(item.id)},
+            chatroom_id=item.chatroom_id,
+            # Forwarded only to models that accept sampling parameters.
+            extra={"temperature": 0},
         )
-    except JudgeAnswerTooLarge as exc:
-        raise _JudgeFailed(SKIP_ANSWER_TOO_LARGE, JudgeStatus.SKIPPED) from exc
-    payload: dict[str, Any] = {
-        "model": model,
-        "system": system,
-        "messages": [{"role": "user", "content": user}],
-        "max_tokens": MAX_OUTPUT_TOKENS,
-        # Forwarded only to models that accept sampling parameters.
-        "temperature": 0,
-    }
-    payload.update(agents.chat_model_capabilities(provider.value, model))
-    request = ProviderRequest(
-        capability=ProviderCapability.LLM_CHAT,
-        payload=payload,
-        agent_id=agent.id,
-        chatroom_id=item.chatroom_id,
-        provider=provider,
-        usage_context="activity_judge",
-    )
-    try:
-        result = await build_router(db).call(group_id=agent.key_group_id, request=request)
-    except KeyGroupExhausted as exc:
-        raise _JudgeFailed(JUDGE_UNAVAILABLE) from exc
-    except Exception as exc:
-        # Only the class: a provider message can echo the prompt, which carries the answer.
-        logger.bind(submission_id=str(item.id)).warning(f"judge call failed: {type(exc).__name__}")
-        raise _JudgeFailed(JUDGE_UNAVAILABLE) from exc
-    text = result.body.get("text") if isinstance(result.body, dict) else None
-    if result.http_status != 200 or not isinstance(text, str):
-        raise _JudgeFailed(JUDGE_UNAVAILABLE)
+    except AgentCallFailed as exc:
+        raise _JudgeFailed(
+            JUDGE_MISCONFIGURED if exc.failure is AgentCallFailure.MISCONFIGURED else JUDGE_UNAVAILABLE
+        ) from exc
+    provider, model = target.provider, target.model
     try:
         parsed = parse_judgement(text)
     except JudgeOutputInvalid as exc:
