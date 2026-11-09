@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from io import BytesIO
 from typing import Any
 
@@ -388,6 +388,7 @@ async def research_data_export(
     from contexts.conversation.application.research_export_builder import (
         AlertRow,
         MessageRow,
+        NoticeRow,
         ObservationRow,
         ResearchExportBuilder,
         SubmissionRow,
@@ -507,7 +508,31 @@ async def research_data_export(
                 if _in_range(a.created_at, state.created_after, state.created_before)
             ]
 
+            exported_at = datetime.now(UTC)
+            notices = [
+                NoticeRow(
+                    chatroom_id=n.chatroom_id,
+                    analyst_agent_id=n.analyst_agent_id,
+                    teacher_agent_id=n.teacher_agent_id,
+                    error_kind=n.error_kind.value,
+                    error=n.error,
+                    suggestion=n.suggestion,
+                    created_at=n.created_at,
+                    status=n.status_at(exported_at).value,
+                    decision=n.decision.value if n.decision else None,
+                    reason=n.reason,
+                    responded_at=n.responded_at,
+                )
+                for n in await conv_facade.list_notices_for_rooms(
+                    chatroom_ids=room_ids,
+                    created_after=state.created_after,
+                    created_before=state.created_before,
+                )
+            ]
+
             agent_ids: set[uuid.UUID] = set()
+            for n in notices:
+                agent_ids.update((n.analyst_agent_id, n.teacher_agent_id))
             for o in observations:
                 agent_ids.add(o.agent_id)
             for a in alerts:
@@ -533,6 +558,7 @@ async def research_data_export(
                 created_before=state.created_before,
                 actor_ip=state.actor_ip,
                 alerts=alerts,
+                notices=notices,
             )
 
         if not await research_export_service.mark_ready(

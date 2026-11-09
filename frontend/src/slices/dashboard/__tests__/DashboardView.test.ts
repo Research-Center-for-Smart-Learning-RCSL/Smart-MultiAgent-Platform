@@ -76,6 +76,14 @@ vi.mock('../components/DashboardAlertsPanel.vue', () => ({
   },
 }))
 
+vi.mock('../components/DashboardCollaborationPanel.vue', () => ({
+  default: {
+    name: 'DashboardCollaborationPanel',
+    template: '<div data-testid="collaboration-panel-stub" />',
+    props: ['workspaceId'],
+  },
+}))
+
 vi.mock('@slices/tenancy', async (importOriginal) => {
   const actual = await importOriginal()
   return {

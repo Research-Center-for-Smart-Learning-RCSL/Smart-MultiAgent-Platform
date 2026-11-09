@@ -24,6 +24,9 @@ from contexts.conversation.infrastructure.repositories.message_repo import (
     MessageEditRepository,
     MessageRepository,
 )
+from contexts.conversation.infrastructure.repositories.notice_repo import (
+    AnalystNoticeRepository,
+)
 from contexts.conversation.infrastructure.repositories.observation_repo import (
     ObservationRepository,
 )
@@ -32,6 +35,7 @@ from contexts.conversation.infrastructure.repositories.workspace_repo import (
 )
 
 __all__ = [
+    "AnalystNoticeRepository",
     "ChatroomAgentRepository",
     "ChatroomGuestRepository",
     "ChatroomMemberGroupRepository",

@@ -36,6 +36,26 @@
         "activity_ended": "您已結束活動"
       }
     },
+    "collaboration": {
+      "title": "代理人協作紀錄",
+      "suggestion": "建議：",
+      "reason": "理由：",
+      "route": "{from} 給 {to}",
+      "kind": {
+        "content": "內容錯誤",
+        "strategy": "策略錯誤"
+      },
+      "status": {
+        "pending": "等待回覆",
+        "answered": "已回覆",
+        "unanswered": "未回覆"
+      },
+      "decision": {
+        "accepted": "已採納",
+        "partly_accepted": "部分採納",
+        "declined": "未採納"
+      }
+    },
     "classSummary": "課堂摘要",
     "attentionRequired": "聊天室需要關注",
     "noStalledRooms": "所有聊天室狀態正常。",

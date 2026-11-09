@@ -210,6 +210,46 @@ agent_observations = sa.Table(
     sa.Column("first_action_kind", sa.Text, nullable=True),
 )
 
+# [R34.04], [R34.05], migration 0111.
+analyst_notices = sa.Table(
+    "analyst_notices",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "chatroom_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("chatrooms.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "analyst_agent_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column("analyst_binding_id", pg.UUID(as_uuid=True), nullable=False),
+    sa.Column(
+        "teacher_agent_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column("teacher_binding_id", pg.UUID(as_uuid=True), nullable=False),
+    sa.Column("error_kind", sa.Text, nullable=False),
+    sa.Column("error", sa.Text, nullable=False),
+    sa.Column("suggestion", sa.Text, nullable=False),
+    sa.Column(
+        "about_message_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("decision", sa.Text, nullable=True),
+    sa.Column("reason", sa.Text, nullable=True),
+    sa.Column("responded_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+)
+
 chatroom_guests = sa.Table(
     "chatroom_guests",
     metadata,
@@ -394,6 +434,7 @@ message_attachments = sa.Table(
 
 __all__ = [
     "agent_observations",
+    "analyst_notices",
     "chatroom_agents",
     "chatroom_guests",
     "chatroom_member_groups",

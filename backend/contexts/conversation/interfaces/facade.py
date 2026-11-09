@@ -25,6 +25,7 @@ from contexts.conversation.application.guest_session_service import (
     GuestRenameResult,
     GuestSessionResult,
 )
+from contexts.conversation.application.notice_service import NoticeCreated, NoticeRefused
 from contexts.conversation.application.room_guests import RoomGuests, load_room_guests, project_id_for_room
 from contexts.conversation.application.room_presence import RoomPresenceSnapshot
 from contexts.conversation.domain.models import (
@@ -34,6 +35,7 @@ from contexts.conversation.domain.models import (
     AgentObservation,
     AlertActionKind,
     AlertViewSurface,
+    AnalystNotice,
     AttachmentExtractionStatus,
     AttachmentStatus,
     BindingWakeupState,
@@ -47,6 +49,8 @@ from contexts.conversation.domain.models import (
     GuestBan,
     Message,
     MessageAttachment,
+    NoticeDecision,
+    NoticeErrorKind,
     SenderType,
     Workspace,
 )
@@ -1052,6 +1056,89 @@ class ConversationFacade:
             chatroom_ids=chatroom_ids, include_deleted=include_deleted, limit=limit, offset=offset
         )
 
+    async def room_has_teacher_agent(self, *, chatroom_id: uuid.UUID) -> bool:
+        """[R34.04]: whether an analyst here has anyone to notify."""
+        return (
+            await self._room_agents.classroom_binding(
+                chatroom_id=chatroom_id, classroom_role=ClassroomRole.TEACHER
+            )
+            is not None
+        )
+
+    async def create_analyst_notice(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        analyst_agent_id: uuid.UUID,
+        error_kind: NoticeErrorKind,
+        error: str,
+        suggestion: str,
+        about_message_id: uuid.UUID | None = None,
+    ) -> NoticeCreated | NoticeRefused:
+        """[R34.04]. Written in the caller's transaction; the caller owns commit
+        and the teacher's wake after it."""
+        from contexts.conversation.application.notice_service import AnalystNoticeService
+
+        return await AnalystNoticeService(self._db).create(
+            chatroom_id=chatroom_id,
+            analyst_agent_id=analyst_agent_id,
+            error_kind=error_kind,
+            error=error,
+            suggestion=suggestion,
+            about_message_id=about_message_id,
+        )
+
+    async def open_notices_for_teacher(
+        self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID
+    ) -> Sequence[AnalystNotice]:
+        """[R34.05]: the notices this agent's teacher binding still owes an answer."""
+        from contexts.conversation.application.notice_service import AnalystNoticeService
+
+        return await AnalystNoticeService(self._db).open_for_teacher(
+            chatroom_id=chatroom_id, agent_id=agent_id
+        )
+
+    async def respond_to_notice(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        teacher_agent_id: uuid.UUID,
+        notice_id: uuid.UUID,
+        decision: NoticeDecision,
+        reason: str,
+    ) -> AnalystNotice | None:
+        """[R34.05]. Once per notice; the caller owns commit."""
+        from contexts.conversation.application.notice_service import AnalystNoticeService
+
+        return await AnalystNoticeService(self._db).respond(
+            chatroom_id=chatroom_id,
+            teacher_agent_id=teacher_agent_id,
+            notice_id=notice_id,
+            decision=decision,
+            reason=reason,
+        )
+
+    async def list_notices_for_rooms(
+        self,
+        *,
+        chatroom_ids: Sequence[uuid.UUID],
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> Sequence[AnalystNotice]:
+        """Notices of a set of rooms, newest first ([R34.03]). The caller decides
+        which rooms the reader may see."""
+        from contexts.conversation.application.notice_service import AnalystNoticeService
+
+        return await AnalystNoticeService(self._db).list_for_rooms(
+            chatroom_ids=chatroom_ids,
+            created_after=created_after,
+            created_before=created_before,
+            limit=limit,
+            offset=offset,
+        )
+
     async def record_alert_views(
         self,
         *,
@@ -1329,6 +1416,8 @@ __all__ = [
     "DraftReadGrant",
     "Message",
     "MessageAttachment",
+    "NoticeCreated",
+    "NoticeRefused",
     "RoomGuests",
     "RoomPresenceSnapshot",
     "SenderType",

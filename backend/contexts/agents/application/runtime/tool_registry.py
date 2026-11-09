@@ -146,6 +146,10 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
         "canvas_create_object",
         "canvas_update_object",
         "canvas_delete_object",
+        # Analyst/teacher notices ([R34.04], [R34.05]); sourced from the binding's
+        # classroom role.
+        "notify_teacher_agent",
+        "respond_to_notice",
     }
 )
 
@@ -154,8 +158,10 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
 # An allowlist rather than a denylist: every other name, including every MCP and
 # local-function tool, is assumed to have side effects. `present_observation` is
 # here because its blocks are only recorded after the re-check decides.
+# `respond_to_notice` records the teacher's answer to the analyst, which no room
+# participant can see, so withdrawing the reply after it orphans nothing visible.
 READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
-    {"read_skill", "web_search", "file_search", "read_drafts", "present_observation"}
+    {"read_skill", "web_search", "file_search", "read_drafts", "present_observation", "respond_to_notice"}
 )
 
 

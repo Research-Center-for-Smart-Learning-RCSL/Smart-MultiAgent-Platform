@@ -5,7 +5,7 @@ from __future__ import annotations
 import enum
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 
@@ -80,6 +80,39 @@ class AlertActionKind(str, enum.Enum):
 
 #: [R34.02]: matches ck_agent_observations_alert_reason (0110).
 ALERT_REASON_MAX_CHARS = 200
+
+
+class NoticeErrorKind(str, enum.Enum):
+    """What an analyst notice is about ([R34.04])."""
+
+    CONTENT = "content"
+    STRATEGY = "strategy"
+
+
+class NoticeDecision(str, enum.Enum):
+    """The teacher agent's reaction to a notice ([R34.05])."""
+
+    ACCEPTED = "accepted"
+    PARTLY_ACCEPTED = "partly_accepted"
+    DECLINED = "declined"
+
+
+class NoticeStatus(str, enum.Enum):
+    """Derived, never stored: see :meth:`AnalystNotice.status_at`."""
+
+    PENDING = "pending"
+    ANSWERED = "answered"
+    UNANSWERED = "unanswered"
+
+
+#: [R34.04], [R34.05]: match the CHECK constraints of 0111.
+NOTICE_TEXT_MAX_CHARS = 1000
+NOTICE_REASON_MAX_CHARS = 500
+#: [R34.05]: a notice nobody answered within this window reads as unanswered.
+NOTICE_ANSWER_WINDOW = timedelta(minutes=15)
+#: [R34.04]: at most this many notices per room within ``NOTICE_RATE_WINDOW``.
+NOTICE_RATE_LIMIT = 3
+NOTICE_RATE_WINDOW = timedelta(minutes=10)
 
 
 class ChatroomAgentBubbleColor(str, enum.Enum):
@@ -304,6 +337,33 @@ class AgentObservation:
     first_viewed_via: AlertViewSurface | None = None
     first_action_at: datetime | None = None
     first_action_kind: AlertActionKind | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AnalystNotice:
+    """An analyst agent's private note to the room's teacher agent ([R34.04])."""
+
+    id: uuid.UUID
+    chatroom_id: uuid.UUID
+    analyst_agent_id: uuid.UUID
+    analyst_binding_id: uuid.UUID
+    teacher_agent_id: uuid.UUID
+    teacher_binding_id: uuid.UUID
+    error_kind: NoticeErrorKind
+    error: str
+    suggestion: str
+    created_at: datetime
+    about_message_id: uuid.UUID | None = None
+    decision: NoticeDecision | None = None
+    reason: str | None = None
+    responded_at: datetime | None = None
+
+    def status_at(self, now: datetime) -> NoticeStatus:
+        if self.decision is not None:
+            return NoticeStatus.ANSWERED
+        if now - self.created_at >= NOTICE_ANSWER_WINDOW:
+            return NoticeStatus.UNANSWERED
+        return NoticeStatus.PENDING
 
 
 @dataclass(frozen=True, slots=True)

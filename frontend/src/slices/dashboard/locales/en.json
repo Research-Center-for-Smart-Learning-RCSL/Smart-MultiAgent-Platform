@@ -36,6 +36,26 @@
         "activity_ended": "You ended an activity"
       }
     },
+    "collaboration": {
+      "title": "Agent collaboration log",
+      "suggestion": "Suggestion:",
+      "reason": "Reason:",
+      "route": "{from} to {to}",
+      "kind": {
+        "content": "Content error",
+        "strategy": "Strategy error"
+      },
+      "status": {
+        "pending": "Awaiting answer",
+        "answered": "Answered",
+        "unanswered": "No answer"
+      },
+      "decision": {
+        "accepted": "Accepted",
+        "partly_accepted": "Partly accepted",
+        "declined": "Declined"
+      }
+    },
     "classSummary": "Class summary",
     "attentionRequired": "Rooms need attention",
     "noStalledRooms": "All rooms are on track.",

@@ -587,6 +587,7 @@ _WAKE_REASONS: Mapping[str, str] = {
     "on_join": "a participant joining",
     "mention": "a mention",
     "release": "a released observation",
+    "analyst_notice": "a notice from the analyst agent",
     "class_start": "the class starting",
     "activity_deadline": "the activity's time limit",
     "all_submitted": "every connected participant having submitted",
@@ -3159,6 +3160,7 @@ class TurnEngine:
         role, classroom_role = roles
         is_observer = role is ChatroomAgentRole.OBSERVER
         is_analyst = is_observer and classroom_role is ClassroomRole.ANALYST
+        is_teacher = not is_observer and classroom_role is ClassroomRole.TEACHER
         # Replay short-circuit (F-7). A turn is not retry-safe: it commits its
         # reply with post-commit work still to run. `max_tries=1` stops arq
         # replaying the job, but not a turn that ran twice because its lock
@@ -3326,6 +3328,16 @@ class TurnEngine:
                 is_analyst=is_analyst,
                 observation_alert_sink=observation_alert,
             )
+            # [R34.04], [R34.05]: the notice tools come from the classroom role read
+            # above, and the teacher's open notices ride in the notifications block.
+            # Teacher wakes are owed only once the turn commits the notice.
+            notice_wakes: list[dict[str, Any]] = []
+            notice_block, notice_tools = await self._collaboration_context(
+                agent, chatroom_id, is_analyst=is_analyst, is_teacher=is_teacher, wake_sink=notice_wakes
+            )
+            extra_tools = extra_tools + notice_tools
+            if notice_block:
+                notify_block = f"{notify_block}\n\n{notice_block}" if notify_block else notice_block
             # Resolved once and shared by both consumers below so they see the
             # same snapshot (see _resolve_trigger_attachments docstring).
             trigger_attachments = await self._resolve_trigger_attachments(chatroom_id, trigger_message_id)
@@ -3862,6 +3874,9 @@ class TurnEngine:
                     await self._drain_activation_events(agent, activation_events, is_observer=is_observer)
                 async with _post_commit("wake-up timer effects (empty reply)"):
                     await self._drain_wakeup_effects(wakeup_effects)
+                # An analyst may send its notice and then say nothing else.
+                async with _post_commit("analyst notice wakes (empty reply)"):
+                    await self._dispatch_notice_wakes(chatroom_id, notice_wakes)
                 # The provider was reached and the drained notes were in its context
                 # (rendering is delivery for notify/released_observation, R9.16/R28.07),
                 # but an approval ballot is only consumed once cast — re-arm it if the
@@ -3946,6 +3961,8 @@ class TurnEngine:
                     await self._drain_activation_events(agent, activation_events, is_observer=is_observer)
                 async with _post_commit("wake-up timer effects (observer)"):
                     await self._drain_wakeup_effects(wakeup_effects)
+                async with _post_commit("analyst notice wakes (observer)"):
+                    await self._dispatch_notice_wakes(chatroom_id, notice_wakes)
                 async with _post_commit("settle pending approvals (observer)"):
                     await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
                 return TurnResult(
@@ -4249,6 +4266,79 @@ class TurnEngine:
                 "workflow message-signal dispatch failed for room %s",
                 chatroom_id,
                 exc_info=True,
+            )
+
+    async def _collaboration_context(
+        self,
+        agent: Agent,
+        chatroom_id: uuid.UUID,
+        *,
+        is_analyst: bool,
+        is_teacher: bool,
+        wake_sink: list[dict[str, Any]],
+    ) -> tuple[str | None, list[Tool]]:
+        """The analyst's notify tool, or the teacher's open notices and answer tool.
+
+        Fails closed: any error yields no block and no tools, so a fault here
+        cannot cost the turn its other tools."""
+        if not (is_analyst or is_teacher):
+            return None, []
+        try:
+            from contexts.agents.application.runtime.collaboration_tools import (
+                build_notify_teacher_agent_tool,
+                build_respond_to_notice_tool,
+                render_notice_block,
+            )
+
+            facade = ConversationFacade(self._db)
+            # A savepoint, so a failed read leaves the turn's transaction usable.
+            async with self._db.begin_nested():
+                if is_analyst:
+                    has_teacher = await facade.room_has_teacher_agent(chatroom_id=chatroom_id)
+                else:
+                    notices = await facade.open_notices_for_teacher(
+                        chatroom_id=chatroom_id, agent_id=agent.id
+                    )
+            if is_analyst:
+                if not has_teacher:
+                    return None, []
+                return None, [
+                    build_notify_teacher_agent_tool(
+                        self._db, chatroom_id=chatroom_id, analyst_agent_id=agent.id, wake_sink=wake_sink
+                    )
+                ]
+            if not notices:
+                return None, []
+            return render_notice_block(notices), [
+                build_respond_to_notice_tool(
+                    self._db, chatroom_id=chatroom_id, teacher_agent_id=agent.id, notices=notices
+                )
+            ]
+        except Exception:
+            _log.warning("collaboration context failed for agent %s", agent.id, exc_info=True)
+            return None, []
+
+    async def _dispatch_notice_wakes(self, chatroom_id: uuid.UUID, wakes: list[dict[str, Any]]) -> None:
+        """Wake the teacher for the notices this turn committed ([R34.04]).
+
+        ``analyst_notice`` is an autonomous trigger: the worker applies the
+        binding, class-closed and autostop guards, and the per-room notice cap
+        bounds how often an analyst can raise it. Several notices in one turn
+        share one wake."""
+        if not wakes:
+            return
+        from shared_kernel.queue import enqueue
+
+        targets = {(w["teacher_agent_id"], w["teacher_binding_id"]) for w in wakes}
+        wakes.clear()
+        for teacher_agent_id, teacher_binding_id in targets:
+            await enqueue(
+                "wakeup_agent",
+                str(teacher_agent_id),
+                str(chatroom_id),
+                "analyst_notice",
+                None,
+                str(teacher_binding_id),
             )
 
     async def _dispatch_agent_reply_wakeups(

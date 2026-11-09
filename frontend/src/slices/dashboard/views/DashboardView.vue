@@ -17,6 +17,7 @@ import DashboardAttentionPanel from '../components/DashboardAttentionPanel.vue'
 import DashboardChartPanel from '../components/DashboardChartPanel.vue'
 import DashboardParticipantsPanel from '../components/DashboardParticipantsPanel.vue'
 import DashboardAlertsPanel from '../components/DashboardAlertsPanel.vue'
+import DashboardCollaborationPanel from '../components/DashboardCollaborationPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -155,6 +156,7 @@ const {
       />
 
       <DashboardAlertsPanel :workspace-id="workspaceId" />
+      <DashboardCollaborationPanel :workspace-id="workspaceId" />
 
       <div class="grid grid-cols-1 gap-4 md:grid-cols-12">
         <section

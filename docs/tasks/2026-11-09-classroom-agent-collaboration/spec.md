@@ -188,11 +188,11 @@ This change adds agent tools and LLM prompt surfaces, so Part F of `check-securi
 - [x] AC-6: The research export contains `alerts.csv` with the columns in §5, manifest `schema_version` 3, and no full UUID or display name.
 
 **M2**
-- [ ] AC-7: An analyst binding in a room with a teacher binding is offered `notify_teacher_agent`; without a teacher binding, or on a non-analyst binding, it is not.
-- [ ] AC-8: A notice creates a durable row, wakes the teacher with trigger `analyst_notice`, and the teacher's next turn contains the notice block; the notice never appears in the room transcript or on the room channel.
-- [ ] AC-9: The teacher's `respond_to_notice` records decision and reason once; a notice without a response for 15 minutes reads as `unanswered`.
-- [ ] AC-10: The fourth notice in a room within 10 minutes, and a second pending notice about the same message, are refused.
-- [ ] AC-11: The dashboard collaboration log lists notices with error, suggestion, decision and reason for rooms the caller created; the export contains `analyst_notices.csv`.
+- [x] AC-7: An analyst binding in a room with a teacher binding is offered `notify_teacher_agent`; without a teacher binding, or on a non-analyst binding, it is not.
+- [x] AC-8: A notice creates a durable row, wakes the teacher with trigger `analyst_notice`, and the teacher's next turn contains the notice block; the notice never appears in the room transcript or on the room channel.
+- [x] AC-9: The teacher's `respond_to_notice` records decision and reason once; a notice without a response for 15 minutes reads as `unanswered`.
+- [x] AC-10: The fourth notice in a room within 10 minutes, and a second pending notice about the same message, are refused.
+- [x] AC-11: The dashboard collaboration log lists notices with error, suggestion, decision and reason for rooms the caller created; the export contains `analyst_notices.csv`.
 
 **M3**
 - [ ] AC-12: A peer binding's turn in a room with a teacher binding emits no `agent.token` frames and no `message.created` before a decision, and is offered only read-only tools.
@@ -252,6 +252,9 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - D-1 (M1): The classroom role is written and read by the room creator only (`ensure_room_creator`), not by any room manager as AC-1 words it. The analyst role sits on an observer binding, and every observer surface is creator-only under [R28.02]; letting a project editor set or see it would disclose the observer layout to a reader the rest of the platform withholds it from. AC-1 is verified against the creator.
 - D-2 (M1): The dashboard alerts list is assembled in the route (`backend/app/api/v1/dashboard.py`) from the conversation facade and `AgentsFacade.agent_names`, not inside the dashboard context. Alerts are conversation data, and the dashboard context does not read observations today; routing them through it would add a cross-context dependency for a single read.
 - D-3 (M1): A view is recorded only when the reporter is the literal room creator. The viewed route's creator gate also admits an admin, and an admin's view standing in for the teacher's would corrupt the RQ2 measure; this is the same rule the first-action path already applies. The frontend observer panel skips the request for anyone but the literal creator; the dashboard still sends it for an admin and the server ignores it.
+- D-4 (M2): The teacher's turn reads its open notices straight from the `analyst_notices` table rather than from the Redis `pending_notify` queue. The table is already the durable record, so a second delivery channel could only disagree with it; reading the table also means an unanswered notice is shown again on every teacher turn until it is answered or its 15-minute window ends, instead of being consumed on first render. The `analyst_notice` wake only prompts a turn; the turn finds the notices itself.
+- D-5 (M2): A teacher binding set to `call_only` is not woken by `analyst_notice`, the same as every other autonomous trigger in `wakeup_agent`. The notice is not lost: it is shown on the teacher's next called turn while its window lasts. A wake for a teacher incarnation that has since been rebound is dropped by the existing binding check, and the rebound teacher is not offered the old incarnation's notices.
+- D-6 (M2): The collaboration log response carries `kind: "analyst_notice"` on each entry so M3 can add peer reviews to the same list without a contract change. The route reuses the alerts route's creator-room gate, now extracted as `_resolve_own_rooms` in `backend/app/api/v1/dashboard.py`.
 
 ## 16. Follow-ups
 

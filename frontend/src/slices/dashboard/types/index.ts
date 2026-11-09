@@ -6,6 +6,7 @@ export type {
   WatchlistEntryOut as WatchlistEntry,
   DashboardWatchlistOut as DashboardWatchlistResponse,
   AlertOut as DashboardAlert,
+  CollaborationEntryOut as CollaborationEntry,
   TrafficLight,
   TimeWindow,
   BucketSize,
