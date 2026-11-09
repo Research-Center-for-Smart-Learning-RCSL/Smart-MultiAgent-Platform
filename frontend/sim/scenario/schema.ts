@@ -115,12 +115,22 @@ export const ActorSchema = z
     }
   })
 
-const AgentBindingSchema = z.object({
-  name: z.string().min(1),
-  role: z.enum(['normal', 'observer']).default('normal'),
-  /** Activity type keys (or names) this agent may start and end. */
-  grantActivityTypes: z.array(z.string()).default([]),
-})
+const AgentBindingSchema = z
+  .object({
+    name: z.string().min(1),
+    role: z.enum(['normal', 'observer']).default('normal'),
+    /** Activity type keys (or names) this agent may start and end. */
+    grantActivityTypes: z.array(z.string()).default([]),
+    /** [R34.01]: the server refuses an analyst on a normal binding and a teacher or peer on an observer one. */
+    classroomRole: z.enum(['none', 'teacher', 'peer', 'analyst']).default('none'),
+  })
+  .superRefine((a, ctx) => {
+    const observerOnly = a.classroomRole === 'analyst'
+    const normalOnly = a.classroomRole === 'teacher' || a.classroomRole === 'peer'
+    if ((observerOnly && a.role !== 'observer') || (normalOnly && a.role !== 'normal')) {
+      ctx.addIssue({ code: 'custom', message: `agent ${a.name}: classroom role ${a.classroomRole} does not fit a ${a.role} binding` })
+    }
+  })
 
 /** The room's class-start setting (phase 4); the class starts on the first of the two. */
 const ClassStartSchema = z.object({

@@ -9,6 +9,7 @@ import objAc21 from '../scenarios/objreinterp-ac21.ts'
 import charAuto from '../scenarios/charbuild-autonomous.ts'
 import objAuto from '../scenarios/objreinterp-autonomous.ts'
 import cratAuto from '../scenarios/crat-autonomous.ts'
+import collabAc21 from '../scenarios/classroom-collab-ac21.ts'
 
 const minimal: ScenarioInput = {
   name: 'x',
@@ -37,8 +38,31 @@ describe('shipped scenarios', () => {
     ['charbuild-autonomous', charAuto],
     ['objreinterp-autonomous', objAuto],
     ['crat-autonomous', cratAuto],
+    ['classroom-collab-ac21', collabAc21],
   ])('%s parses', (_name, s) => {
     expect(issues(s)).toEqual([])
+  })
+
+  it('the collaboration run sets the three classroom roles and mentions SA once per round', () => {
+    const s = ScenarioSchema.parse(collabAc21)
+    expect(s.room.agents.map((a) => [a.name.slice(0, 2), a.role, a.classroomRole])).toEqual([
+      ['TA', 'normal', 'teacher'],
+      ['SA', 'normal', 'peer'],
+      ['AA', 'observer', 'analyst'],
+    ])
+    const asks = s.steps.filter((x) => x.do === 'say' && x.text.startsWith('@SA 字詞拼圖同儕代理 '))
+    expect(asks).toHaveLength(4)
+    // AA wakes every 20 student messages; two wakes need 40.
+    expect(s.steps.filter((x) => x.do === 'say' && x.actor !== 'F').length).toBeGreaterThanOrEqual(38)
+  })
+
+  it.each([
+    ['analyst', 'normal'],
+    ['teacher', 'observer'],
+    ['peer', 'observer'],
+  ] as const)('refuses a %s on a %s binding', (classroomRole, role) => {
+    const input: ScenarioInput = { ...minimal, room: { mode: 'create', name: 'r', agents: [{ name: 'A', role, classroomRole }] } }
+    expect(issues(input).join()).toContain(`classroom role ${classroomRole} does not fit a ${role} binding`)
   })
 
   it('the phase 4 runs configure the class flow and leave the facilitator out (AC-11)', () => {

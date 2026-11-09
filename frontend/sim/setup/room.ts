@@ -29,6 +29,8 @@ interface AgentRef {
   agent_id: string
   name?: string | null
   role?: 'normal' | 'observer' | null
+  /** Returned to the room creator only. */
+  classroom_role?: 'none' | 'teacher' | 'peer' | 'analyst' | null
   may_control_activities?: boolean | null
   activity_type_allowlist?: string[] | null
 }
@@ -93,6 +95,11 @@ export async function setupRoom(
         await facilitator.patch(`/api/chatrooms/${roomId}/agents/${agentId}/activity-control`, {
           granted: true,
           activity_type_ids: a.grantActivityTypes.map((k) => resolveType(types, k).id),
+        })
+      }
+      if (a.classroomRole !== 'none') {
+        await facilitator.patch(`/api/chatrooms/${roomId}/agents/${agentId}/classroom-role`, {
+          classroom_role: a.classroomRole,
         })
       }
     }
@@ -198,6 +205,9 @@ export async function verifyRoom(
       continue
     }
     if (got.role && got.role !== want.role) problems.push(`agent ${want.name} is bound as ${got.role}, not ${want.role}`)
+    if ((got.classroom_role ?? 'none') !== want.classroomRole) {
+      problems.push(`agent ${want.name} has classroom role ${got.classroom_role ?? 'none'}, not ${want.classroomRole}`)
+    }
     for (const key of want.grantActivityTypes) {
       const typeId = resolveType(types, key).id
       if (!got.may_control_activities || !(got.activity_type_allowlist ?? []).includes(typeId)) {
