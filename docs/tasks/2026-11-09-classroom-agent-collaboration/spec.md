@@ -180,12 +180,12 @@ This change adds agent tools and LLM prompt surfaces, so Part F of `check-securi
 ## 11. Acceptance Criteria
 
 **M1**
-- [ ] AC-1: A room manager can set a binding's classroom role; a second teacher in the same room, a peer or teacher on an observer binding, and an analyst on a normal binding are rejected with a problem response; switching a binding between normal and observer resets its classroom role.
-- [ ] AC-2: An analyst's `present_observation` call with `alert: true` stores `is_alert` and `alert_reason`; a non-analyst observer is not offered the alert arguments.
-- [ ] AC-3: Reporting a view for an alert sets `first_viewed_at` and `first_viewed_via` once; a second report, a report by a non-creator, and a report for another room's observation leave it unchanged.
-- [ ] AC-4: The first of release, delete, the creator's next room message, or the creator's next activity start or end in the room sets `first_action_at` and `first_action_kind` on every open alert in that room raised before it, and later actions do not change it.
-- [ ] AC-5: The dashboard alerts list shows only alerts from rooms the caller created (all for an admin), and shown alerts are reported as viewed with `via = dashboard`.
-- [ ] AC-6: The research export contains `alerts.csv` with the columns in §5, manifest `schema_version` 3, and no full UUID or display name.
+- [x] AC-1: A room manager can set a binding's classroom role; a second teacher in the same room, a peer or teacher on an observer binding, and an analyst on a normal binding are rejected with a problem response; switching a binding between normal and observer resets its classroom role.
+- [x] AC-2: An analyst's `present_observation` call with `alert: true` stores `is_alert` and `alert_reason`; a non-analyst observer is not offered the alert arguments.
+- [x] AC-3: Reporting a view for an alert sets `first_viewed_at` and `first_viewed_via` once; a second report, a report by a non-creator, and a report for another room's observation leave it unchanged.
+- [x] AC-4: The first of release, delete, the creator's next room message, or the creator's next activity start or end in the room sets `first_action_at` and `first_action_kind` on every open alert in that room raised before it, and later actions do not change it.
+- [x] AC-5: The dashboard alerts list shows only alerts from rooms the caller created (all for an admin), and shown alerts are reported as viewed with `via = dashboard`.
+- [x] AC-6: The research export contains `alerts.csv` with the columns in §5, manifest `schema_version` 3, and no full UUID or display name.
 
 **M2**
 - [ ] AC-7: An analyst binding in a room with a teacher binding is offered `notify_teacher_agent`; without a teacher binding, or on a non-analyst binding, it is not.
