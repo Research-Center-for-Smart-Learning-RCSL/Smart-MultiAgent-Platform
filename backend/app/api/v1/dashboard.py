@@ -10,10 +10,10 @@ import datetime as dt
 import enum
 import uuid
 from dataclasses import asdict
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import assert_project_role, is_project_owner_or_admin
@@ -251,8 +251,26 @@ class CollaborationEntryOut(BaseModel):
     responded_at: dt.datetime | None
 
 
+class PeerReviewEntryOut(BaseModel):
+    kind: Literal["peer_review"]
+    id: uuid.UUID
+    room_id: uuid.UUID
+    room_name: str
+    from_agent_name: str | None
+    to_agent_name: str | None
+    draft: str
+    created_at: dt.datetime
+    status: Literal["pending", "approved", "modified", "rejected", "expired"]
+    attempt: int
+    reason: str | None
+    revised_text: str | None
+    expire_reason: Literal["no_teacher", "no_decision", "binding_changed", "defer_limit", "failed"] | None
+    decided_at: dt.datetime | None
+    posted_message_id: uuid.UUID | None
+
+
 class DashboardCollaborationOut(BaseModel):
-    entries: list[CollaborationEntryOut]
+    entries: list[Annotated[CollaborationEntryOut | PeerReviewEntryOut, Field(discriminator="kind")]]
 
 
 @router.get("/{workspace_id}/dashboard/collaboration")
@@ -263,40 +281,67 @@ async def dashboard_collaboration(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> DashboardCollaborationOut:
-    """The collaboration log of the rooms the caller created ([R34.03]).
+    """The collaboration log of the rooms the caller created ([R34.03], [R34.06]).
 
-    Notices are as confidential as observations ([R28.03]): only the room's
-    creator reads them, whoever else may open the room."""
+    Notices and held drafts are as confidential as observations ([R28.03]): only
+    the room's creator reads them, whoever else may open the room. The two
+    sources are each read newest first up to the requested page's end and merged,
+    so a page is exact without a shared cursor."""
     own = await _resolve_own_rooms(db=db, principal=principal, workspace_id=workspace_id)
-    rows = await ConversationFacade(db).list_notices_for_rooms(
-        chatroom_ids=list(own), limit=limit, offset=offset
-    )
+    facade = ConversationFacade(db)
+    notices = await facade.list_notices_for_rooms(chatroom_ids=list(own), limit=offset + limit)
+    reviews = await facade.list_peer_reviews_for_rooms(chatroom_ids=list(own), limit=offset + limit)
     names = await AgentsFacade(db).agent_names(
-        list({r.analyst_agent_id for r in rows} | {r.teacher_agent_id for r in rows})
+        list(
+            {r.analyst_agent_id for r in notices}
+            | {r.teacher_agent_id for r in notices}
+            | {r.peer_agent_id for r in reviews}
+            | {r.teacher_agent_id for r in reviews if r.teacher_agent_id is not None}
+        )
     )
     now = dt.datetime.now(dt.UTC)
-    return DashboardCollaborationOut(
-        entries=[
-            CollaborationEntryOut(
-                kind="analyst_notice",
-                id=r.id,
-                room_id=r.chatroom_id,
-                room_name=own[r.chatroom_id],
-                from_agent_name=names.get(r.analyst_agent_id),
-                to_agent_name=names.get(r.teacher_agent_id),
-                error_kind=r.error_kind.value,
-                error=r.error,
-                suggestion=r.suggestion,
-                about_message_id=r.about_message_id,
-                created_at=r.created_at,
-                status=r.status_at(now).value,
-                decision=r.decision.value if r.decision else None,
-                reason=r.reason,
-                responded_at=r.responded_at,
-            )
-            for r in rows
-        ]
+    entries: list[CollaborationEntryOut | PeerReviewEntryOut] = [
+        CollaborationEntryOut(
+            kind="analyst_notice",
+            id=r.id,
+            room_id=r.chatroom_id,
+            room_name=own[r.chatroom_id],
+            from_agent_name=names.get(r.analyst_agent_id),
+            to_agent_name=names.get(r.teacher_agent_id),
+            error_kind=r.error_kind.value,
+            error=r.error,
+            suggestion=r.suggestion,
+            about_message_id=r.about_message_id,
+            created_at=r.created_at,
+            status=r.status_at(now).value,
+            decision=r.decision.value if r.decision else None,
+            reason=r.reason,
+            responded_at=r.responded_at,
+        )
+        for r in notices
+    ]
+    entries.extend(
+        PeerReviewEntryOut(
+            kind="peer_review",
+            id=r.id,
+            room_id=r.chatroom_id,
+            room_name=own[r.chatroom_id],
+            from_agent_name=names.get(r.peer_agent_id),
+            to_agent_name=names.get(r.teacher_agent_id) if r.teacher_agent_id else None,
+            draft=r.draft,
+            created_at=r.created_at,
+            status=r.status_at(now).value,
+            attempt=r.attempt,
+            reason=r.reason,
+            revised_text=r.revised_text,
+            expire_reason=r.expire_reason.value if r.expire_reason else None,
+            decided_at=r.decided_at,
+            posted_message_id=r.posted_message_id,
+        )
+        for r in reviews
     )
+    entries.sort(key=lambda e: (e.created_at, str(e.id)), reverse=True)
+    return DashboardCollaborationOut(entries=entries[offset : offset + limit])
 
 
 @router.get("/{workspace_id}/dashboard/summary")

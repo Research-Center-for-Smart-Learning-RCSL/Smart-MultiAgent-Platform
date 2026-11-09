@@ -689,6 +689,9 @@ class TestDashboardCollaboration:
                 asked.append(kw)
                 return [old]
 
+            async def list_peer_reviews_for_rooms(self, **kw: Any) -> Any:
+                return []
+
         class _Tenancy:
             def __init__(self, db: Any) -> None:
                 pass
@@ -711,13 +714,14 @@ class TestDashboardCollaboration:
         out = await mod.dashboard_collaboration(
             workspace_id=uuid.uuid4(),
             limit=20,
-            offset=40,
+            offset=0,
             principal=Principal(user_id=me, is_admin=False, email_verified=True),
             db=SimpleNamespace(),
         )
 
-        assert asked == [{"chatroom_ids": [mine], "limit": 20, "offset": 40}]
+        assert asked == [{"chatroom_ids": [mine], "limit": 20}]
         entry = out.entries[0]
+        assert entry.kind == "analyst_notice"
         assert (entry.room_name, entry.from_agent_name, entry.to_agent_name) == ("mine", "AA", "TA")
         assert entry.error == old.error
         assert entry.status == "unanswered"

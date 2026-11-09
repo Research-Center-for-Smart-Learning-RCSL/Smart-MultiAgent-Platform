@@ -9,12 +9,15 @@ state machine, the tool surface, the held peer turn and the review turn.
 from __future__ import annotations
 
 import asyncio
+import csv
 import dataclasses
+import io
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, ClassVar
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -27,6 +30,7 @@ from contexts.agents.application.runtime.tool_registry import (
     ToolRegistry,
 )
 from contexts.conversation.application import peer_review_service as prs
+from contexts.conversation.application.research_export_builder import PeerReviewRow, ResearchExportBuilder
 from contexts.conversation.domain.models import (
     PEER_REVIEW_GRACE,
     ClassroomRole,
@@ -35,6 +39,7 @@ from contexts.conversation.domain.models import (
     PeerReviewExpiry,
     PeerReviewStatus,
 )
+from shared_kernel.auth.permissions import Principal
 from tests.unit.turn_engine_fakes import FakeDB, PublisherSpy, make_agent, run_locked, wire_engine
 
 T0 = datetime(2026, 11, 9, 10, 0, tzinfo=UTC)
@@ -736,6 +741,7 @@ def review_world(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     engine._model_hint_unserviceable = _false
     engine._room_guests = _guests
     engine._participant_labels = _labels
+
     def _provider_message(hm: Any, aid: Any, an: Any, un: Any) -> dict[str, Any]:
         return {"role": "user", "content": hm.content}
 
@@ -860,3 +866,159 @@ class TestReviewTurn:
         w.engine._stream_with_tools = _stream_calling(w, {"decision": "approve", "reason": "ok"})
         assert await w.engine.run_review_turn(review_id=w.review.id) == "closed"
         assert "stream" not in w.seen
+
+
+# --------------------------------------------------------------------------- #
+# Dashboard and export (AC-16)
+# --------------------------------------------------------------------------- #
+
+_BOM = "\N{ZERO WIDTH NO-BREAK SPACE}"
+
+
+class TestDashboardCollaboration:
+    async def test_reviews_and_notices_merge_newest_first_and_page_exactly(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import app.api.v1.dashboard as mod
+        from tests.unit.test_analyst_notices import _notice
+
+        me, mine = uuid.uuid4(), uuid.uuid4()
+        now = datetime.now(UTC)
+        notices = [_notice(chatroom_id=mine, created_at=now - timedelta(minutes=m)) for m in (1, 5)]
+        teacher, peer = uuid.uuid4(), uuid.uuid4()
+        reviews = [
+            _review(
+                chatroom_id=mine,
+                peer_agent_id=peer,
+                teacher_agent_id=teacher,
+                created_at=now - timedelta(minutes=m),
+                due_at=now - timedelta(minutes=m) + PEER_REVIEW_GRACE,
+            )
+            for m in (3, 7)
+        ]
+        asked: list[tuple[str, dict[str, Any]]] = []
+
+        class _Conv:
+            def __init__(self, db: Any) -> None:
+                pass
+
+            async def get_workspace(self, wid: Any) -> Any:
+                return SimpleNamespace(project_id=uuid.uuid4(), deleted_at=None)
+
+            async def visible_rooms_in_workspace(self, **_: Any) -> Any:
+                return [SimpleNamespace(id=mine, name="mine", created_by_user_id=me)]
+
+            async def list_notices_for_rooms(self, **kw: Any) -> Any:
+                asked.append(("notices", kw))
+                return notices
+
+            async def list_peer_reviews_for_rooms(self, **kw: Any) -> Any:
+                asked.append(("reviews", kw))
+                return reviews
+
+        class _Tenancy:
+            def __init__(self, db: Any) -> None:
+                pass
+
+            async def get_project(self, pid: Any) -> Any:
+                return object()
+
+        class _Agents:
+            def __init__(self, db: Any) -> None:
+                pass
+
+            async def agent_names(self, ids: Any) -> dict[Any, str]:
+                return {peer: "SA", teacher: "TA"}
+
+        monkeypatch.setattr(mod, "ConversationFacade", _Conv)
+        monkeypatch.setattr(mod, "TenancyFacade", _Tenancy)
+        monkeypatch.setattr(mod, "AgentsFacade", _Agents)
+        monkeypatch.setattr(mod, "assert_project_role", AsyncMock())
+
+        out = await mod.dashboard_collaboration(
+            workspace_id=uuid.uuid4(),
+            limit=2,
+            offset=1,
+            principal=Principal(user_id=me, is_admin=False, email_verified=True),
+            db=SimpleNamespace(),
+        )
+
+        # Each source is read to the page's end; the merge decides the page.
+        assert asked == [
+            ("notices", {"chatroom_ids": [mine], "limit": 3}),
+            ("reviews", {"chatroom_ids": [mine], "limit": 3}),
+        ]
+        assert [(e.kind, e.id) for e in out.entries] == [
+            ("peer_review", reviews[0].id),
+            ("analyst_notice", notices[1].id),
+        ]
+        entry = out.entries[0]
+        assert isinstance(entry, mod.PeerReviewEntryOut)
+        assert (entry.from_agent_name, entry.to_agent_name) == ("SA", "TA")
+        # Three minutes old, past the 90-second window: expired to readers.
+        assert entry.status == "expired"
+        assert entry.draft == reviews[0].draft
+        assert out.model_dump(mode="json")["entries"][0]["kind"] == "peer_review"
+
+
+class TestPeerReviewExport:
+    def test_csv_columns_codes_latency_and_formula_guard(self) -> None:
+        room, peer, teacher = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        files = ResearchExportBuilder().build_files(
+            workspace_id=uuid.uuid4(),
+            room_count=1,
+            submissions=[],
+            observations=[],
+            messages=[],
+            agent_key_map={peer: "SA", teacher: "TA"},
+            peer_reviews=[
+                PeerReviewRow(
+                    chatroom_id=room,
+                    peer_agent_id=peer,
+                    teacher_agent_id=teacher,
+                    draft="=1+1",
+                    created_at=T0,
+                    status="modified",
+                    attempt=2,
+                    reason="-too direct",
+                    revised_text="What is 1 plus 1?",
+                    decided_at=T0 + timedelta(seconds=30),
+                    posted=True,
+                ),
+                PeerReviewRow(
+                    chatroom_id=room,
+                    peer_agent_id=peer,
+                    teacher_agent_id=None,
+                    draft="hello",
+                    created_at=T0 + timedelta(minutes=1),
+                    status="expired",
+                    attempt=1,
+                    expire_reason="no_teacher",
+                    decided_at=T0 + timedelta(minutes=1),
+                ),
+            ],
+        )
+        content = files["peer_reviews.csv"]
+        assert content.startswith(_BOM)
+        first, second = list(csv.DictReader(io.StringIO(content.lstrip(_BOM))))
+        assert first["room_code"] == f"r:{str(room)[:8]}"
+        assert (first["peer_agent_key"], first["teacher_agent_key"]) == ("SA", "TA")
+        assert first["draft"] == "'=1+1"
+        assert first["reason"] == "'-too direct"
+        assert first["revised_text"] == "What is 1 plus 1?"
+        assert (first["status"], first["attempt"], first["posted"]) == ("modified", "2", "True")
+        assert first["decision_latency_s"] == "30.0"
+        assert (second["teacher_agent_key"], second["expire_reason"]) == ("", "no_teacher")
+        assert str(room) not in content
+        assert '"peer_review_count": 2' in files["manifest.json"]
+
+    def test_an_export_without_reviews_still_has_the_header(self) -> None:
+        files = ResearchExportBuilder().build_files(
+            workspace_id=uuid.uuid4(),
+            room_count=0,
+            submissions=[],
+            observations=[],
+            messages=[],
+            agent_key_map={},
+        )
+        assert files["peer_reviews.csv"].lstrip(_BOM).startswith("room_code,peer_agent_key,teacher_agent_key")

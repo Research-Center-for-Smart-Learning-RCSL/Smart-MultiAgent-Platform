@@ -390,6 +390,7 @@ async def research_data_export(
         MessageRow,
         NoticeRow,
         ObservationRow,
+        PeerReviewRow,
         ResearchExportBuilder,
         SubmissionRow,
     )
@@ -530,9 +531,35 @@ async def research_data_export(
                 )
             ]
 
+            peer_reviews = [
+                PeerReviewRow(
+                    chatroom_id=r.chatroom_id,
+                    peer_agent_id=r.peer_agent_id,
+                    teacher_agent_id=r.teacher_agent_id,
+                    draft=r.draft,
+                    created_at=r.created_at,
+                    status=r.status_at(exported_at).value,
+                    attempt=r.attempt,
+                    reason=r.reason,
+                    revised_text=r.revised_text,
+                    expire_reason=r.expire_reason.value if r.expire_reason else None,
+                    decided_at=r.decided_at,
+                    posted=r.posted_message_id is not None,
+                )
+                for r in await conv_facade.list_peer_reviews_for_rooms(
+                    chatroom_ids=room_ids,
+                    created_after=state.created_after,
+                    created_before=state.created_before,
+                )
+            ]
+
             agent_ids: set[uuid.UUID] = set()
             for n in notices:
                 agent_ids.update((n.analyst_agent_id, n.teacher_agent_id))
+            for r in peer_reviews:
+                agent_ids.add(r.peer_agent_id)
+                if r.teacher_agent_id is not None:
+                    agent_ids.add(r.teacher_agent_id)
             for o in observations:
                 agent_ids.add(o.agent_id)
             for a in alerts:
@@ -559,6 +586,7 @@ async def research_data_export(
                 actor_ip=state.actor_ip,
                 alerts=alerts,
                 notices=notices,
+                peer_reviews=peer_reviews,
             )
 
         if not await research_export_service.mark_ready(
