@@ -33,7 +33,8 @@ const SLICE_DEPS = {
   // NOT import conversation back — it wraps the read-only workspace/chatroom
   // lookups it needs in its own api/ instead.
   canvas:        [],
-  dashboard:     ['activities', 'tenancy'],
+  // agents: the classroom design panel's agent pickers ([R34.08]).
+  dashboard:     ['agents', 'activities', 'tenancy'],
   conversation:  ['canvas', 'workflow', 'activities', 'agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
   workflow:      ['agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
   admin:         ['prompt-studio', 'skills'],

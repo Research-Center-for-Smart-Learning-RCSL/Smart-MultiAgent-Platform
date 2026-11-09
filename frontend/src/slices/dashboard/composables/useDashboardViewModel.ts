@@ -110,5 +110,6 @@ export function useDashboardViewModel(workspaceId: Ref<string>) {
     refetchWorkspace,
     canExport,
     roleDecided,
+    projectId,
   }
 }

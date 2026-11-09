@@ -51,6 +51,11 @@ const GATED: Record<string, [string, string]> = {
     'slices/activities/views/ActivityTypesView.vue',
     'decided && isAuthorized',
   ],
+  // Rendered only for project owners and admins.
+  'slices/dashboard/components/ClassroomDesignPanel.vue': [
+    'slices/dashboard/views/DashboardView.vue',
+    'roleDecided && canExport && projectId',
+  ],
   // The wrapper itself; its callers are listed below.
   'slices/workflow/utils/projectAgents.ts': ['slices/workflow/utils/projectAgents.ts', 'agentsApi.list('],
   'slices/workflow/views/WorkflowEditorView.vue': [

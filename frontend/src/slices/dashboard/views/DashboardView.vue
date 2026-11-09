@@ -18,6 +18,7 @@ import DashboardChartPanel from '../components/DashboardChartPanel.vue'
 import DashboardParticipantsPanel from '../components/DashboardParticipantsPanel.vue'
 import DashboardAlertsPanel from '../components/DashboardAlertsPanel.vue'
 import DashboardCollaborationPanel from '../components/DashboardCollaborationPanel.vue'
+import ClassroomDesignPanel from '../components/ClassroomDesignPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -45,6 +46,7 @@ const {
   refetchWorkspace,
   canExport,
   roleDecided,
+  projectId,
   rooms,
   sortedRooms,
   buckets,
@@ -110,6 +112,12 @@ const {
       :message="workspaceError.message"
       :retry-label="t('dashboard.retry')"
       @retry="refetchWorkspace()"
+    />
+
+    <!-- Outside the rooms branch: designing agents comes before any room has an activity. -->
+    <ClassroomDesignPanel
+      v-if="roleDecided && canExport && projectId"
+      :project-id="projectId"
     />
 
     <template v-if="summaryLoading">
