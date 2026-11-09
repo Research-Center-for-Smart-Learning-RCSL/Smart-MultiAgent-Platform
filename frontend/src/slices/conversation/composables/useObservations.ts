@@ -14,6 +14,8 @@ import { computed, ref, watch, onScopeDispose, type Ref } from 'vue'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/vue-query'
 import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useSessionStore } from '@shared/stores/session'
+import { usePageVisible } from '@shared/composables/usePageVisible'
+import { onceBatchReporter } from '@shared/composables/onceBatchReporter'
 import {
   deleteObservation,
   listObservations,
@@ -172,17 +174,8 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
   // in a background tab is not a teacher looking. The server keeps the first write
   // only, so a repeat from another tab is harmless; `reported` just avoids sending
   // one per refetch. Best-effort: a lost report costs one data point, not the panel.
-  const VIEW_BATCH = 50
-  const reported = new Set<string>()
-  const pageVisible = ref(typeof document === 'undefined' || document.visibilityState === 'visible')
-
-  function onVisibilityChange(): void {
-    pageVisible.value = document.visibilityState === 'visible'
-  }
-  if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    onScopeDispose(() => document.removeEventListener('visibilitychange', onVisibilityChange))
-  }
+  const pageVisible = usePageVisible()
+  const reportViews = onceBatchReporter((ids) => recordAlertViews(chatroomId, ids, 'panel'), 50)
 
   watch(
     [panelOpen, pageVisible, observations],
@@ -190,16 +183,7 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
       // The literal creator only: the server records nobody else's view, so an
       // admin's or a moderator-fallback reader's request would be wasted.
       if (!panelOpen.value || !pageVisible.value || !receivesLiveStatus.value) return
-      const ids = observations.value
-        .filter((o) => o.is_alert && !o.first_viewed_at && !reported.has(o.id))
-        .map((o) => o.id)
-      for (let i = 0; i < ids.length; i += VIEW_BATCH) {
-        const batch = ids.slice(i, i + VIEW_BATCH)
-        for (const id of batch) reported.add(id)
-        recordAlertViews(chatroomId, batch, 'panel').catch(() => {
-          for (const id of batch) reported.delete(id)
-        })
-      }
+      reportViews(observations.value.filter((o) => o.is_alert && !o.first_viewed_at).map((o) => o.id))
     },
     { immediate: true },
   )

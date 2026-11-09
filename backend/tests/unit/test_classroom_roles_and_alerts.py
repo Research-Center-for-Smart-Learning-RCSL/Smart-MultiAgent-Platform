@@ -288,16 +288,16 @@ class TestViewedRoute:
         async def _require(db: Any, *, principal: Any, chatroom_id: Any) -> None:
             gated.append(chatroom_id)
 
-        class _Service:
+        class _Facade:
             def __init__(self, db: Any) -> None:
                 pass
 
-            async def record_views(self, **kw: Any) -> int:
+            async def record_alert_views(self, **kw: Any) -> int:
                 recorded.append(kw)
                 return 1
 
         monkeypatch.setattr(mod, "_require_creator", _require)
-        monkeypatch.setattr(mod, "ObservationService", _Service)
+        monkeypatch.setattr(mod, "ConversationFacade", _Facade)
         room, obs, caller = uuid.uuid4(), uuid.uuid4(), _principal()
         await mod.record_alert_views(
             body=mod.AlertViewsIn(observation_ids=[obs], via="dashboard"),

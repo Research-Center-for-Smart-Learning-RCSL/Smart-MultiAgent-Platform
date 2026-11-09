@@ -14,6 +14,8 @@ export {
   markConnectionRestored,
 } from './useNetworkStatus'
 export { useNow } from './useNow'
+export { usePageVisible } from './usePageVisible'
+export { onceBatchReporter } from './onceBatchReporter'
 export { usePolling, type UsePollingOptions, type PollingController } from './usePolling'
 export { useInlineRename, type InlineRename } from './useInlineRename'
 export { useRateLimitCountdown, type RateLimitCountdown } from './useRateLimitCountdown'

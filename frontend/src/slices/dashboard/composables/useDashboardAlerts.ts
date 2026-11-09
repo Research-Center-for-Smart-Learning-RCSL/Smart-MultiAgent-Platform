@@ -4,16 +4,16 @@
 // A view is reported only while the page is visible: a dashboard left open in a
 // background tab is not a teacher looking. The server keeps the first view only
 // and ignores anyone but the room's creator, so a repeat or an admin's view is
-// harmless; `reported` only avoids resending one per poll. Best-effort: a lost
+// harmless; the reporter only avoids resending one per poll. Best-effort: a lost
 // report costs one data point, not the dashboard.
 
-import { computed, onScopeDispose, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { DashboardService, ObservationsService } from '@shared/api-client'
+import { usePageVisible } from '@shared/composables/usePageVisible'
+import { onceBatchReporter } from '@shared/composables/onceBatchReporter'
 import { dashboardKeys } from '../queries'
 import type { DashboardAlert } from '../types'
-
-const VIEW_BATCH = 50
 
 export function useDashboardAlerts(workspaceId: () => string) {
   const query = useQuery({
@@ -27,17 +27,24 @@ export function useDashboardAlerts(workspaceId: () => string) {
   })
 
   const alerts = computed<DashboardAlert[]>(() => query.data.value?.alerts ?? [])
-
-  const pageVisible = ref(typeof document === 'undefined' || document.visibilityState === 'visible')
-  function onVisibilityChange(): void {
-    pageVisible.value = document.visibilityState === 'visible'
+  const pageVisible = usePageVisible()
+  // One reporter per room: the route is per room, and ids are unique across rooms.
+  const reporters = new Map<string, (ids: string[]) => void>()
+  function reporterFor(roomId: string): (ids: string[]) => void {
+    let report = reporters.get(roomId)
+    if (!report) {
+      report = onceBatchReporter(
+        (ids) =>
+          ObservationsService.recordAlertViewsApiChatroomsChatroomIdObservationsViewedPost({
+            chatroomId: roomId,
+            requestBody: { observation_ids: ids, via: 'dashboard' },
+          }),
+        50,
+      )
+      reporters.set(roomId, report)
+    }
+    return report
   }
-  if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    onScopeDispose(() => document.removeEventListener('visibilitychange', onVisibilityChange))
-  }
-
-  const reported = new Set<string>()
 
   watch(
     [alerts, pageVisible],
@@ -45,21 +52,9 @@ export function useDashboardAlerts(workspaceId: () => string) {
       if (!pageVisible.value) return
       const byRoom = new Map<string, string[]>()
       for (const a of alerts.value) {
-        if (a.first_viewed_at || reported.has(a.observation_id)) continue
-        byRoom.set(a.room_id, [...(byRoom.get(a.room_id) ?? []), a.observation_id])
+        if (!a.first_viewed_at) byRoom.set(a.room_id, [...(byRoom.get(a.room_id) ?? []), a.observation_id])
       }
-      for (const [roomId, ids] of byRoom) {
-        for (let i = 0; i < ids.length; i += VIEW_BATCH) {
-          const batch = ids.slice(i, i + VIEW_BATCH)
-          for (const id of batch) reported.add(id)
-          ObservationsService.recordAlertViewsApiChatroomsChatroomIdObservationsViewedPost({
-            chatroomId: roomId,
-            requestBody: { observation_ids: batch, via: 'dashboard' },
-          }).catch(() => {
-            for (const id of batch) reported.delete(id)
-          })
-        }
-      }
+      for (const [roomId, ids] of byRoom) reporterFor(roomId)(ids)
     },
     { immediate: true },
   )

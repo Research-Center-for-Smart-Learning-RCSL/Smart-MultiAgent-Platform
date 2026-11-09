@@ -948,11 +948,6 @@ class ConversationFacade:
             request_id=request_id,
         )
 
-    async def binding_roles(
-        self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID
-    ) -> tuple[ChatroomAgentRole, ClassroomRole] | None:
-        return await self._room_agents.roles_of(chatroom_id=chatroom_id, agent_id=agent_id)
-
     async def set_agent_draft_grant(
         self,
         *,

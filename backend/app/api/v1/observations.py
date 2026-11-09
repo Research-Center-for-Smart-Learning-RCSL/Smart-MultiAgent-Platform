@@ -32,6 +32,7 @@ from contexts.conversation.domain.models import (
     AlertViewSurface,
 )
 from contexts.conversation.interfaces import room_channel
+from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.interfaces import user_channel
 from contexts.orchestration.infrastructure import pending_notify
 from shared_kernel.auth.context import RequestContext
@@ -192,7 +193,7 @@ async def record_alert_views(
     the call is idempotent and reveals nothing about ids outside the room. An
     admin passes the gate but is not the teacher, so their view records nothing."""
     await _require_creator(db, principal=principal, chatroom_id=chatroom_id)
-    await ObservationService(db).record_views(
+    await ConversationFacade(db).record_alert_views(
         chatroom_id=chatroom_id,
         actor_user_id=principal.user_id,
         observation_ids=body.observation_ids,

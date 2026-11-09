@@ -558,17 +558,6 @@ class ChatroomAgentRepository:
         ).first()
         return (ChatroomAgentRole(row.role), ClassroomRole(row.classroom_role)) if row else None
 
-    async def teacher_of(self, chatroom_id: uuid.UUID) -> uuid.UUID | None:
-        row = (
-            await self._db.execute(
-                sa.select(t.chatroom_agents.c.agent_id).where(
-                    t.chatroom_agents.c.chatroom_id == chatroom_id,
-                    t.chatroom_agents.c.classroom_role == ClassroomRole.TEACHER.value,
-                )
-            )
-        ).first()
-        return row.agent_id if row else None
-
     async def set_classroom_role(
         self,
         *,

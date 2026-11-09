@@ -249,7 +249,14 @@ Amendment to **[R33.10]**, appended to the end of the requirement:
 
 Appended by /build. Empty means the implementation matches this spec exactly.
 
+- D-1 (M1): The classroom role is written and read by the room creator only (`ensure_room_creator`), not by any room manager as AC-1 words it. The analyst role sits on an observer binding, and every observer surface is creator-only under [R28.02]; letting a project editor set or see it would disclose the observer layout to a reader the rest of the platform withholds it from. AC-1 is verified against the creator.
+- D-2 (M1): The dashboard alerts list is assembled in the route (`backend/app/api/v1/dashboard.py`) from the conversation facade and `AgentsFacade.agent_names`, not inside the dashboard context. Alerts are conversation data, and the dashboard context does not read observations today; routing them through it would add a cross-context dependency for a single read.
+- D-3 (M1): A view is recorded only when the reporter is the literal room creator. The viewed route's creator gate also admits an admin, and an admin's view standing in for the teacher's would corrupt the RQ2 measure; this is the same rule the first-action path already applies. The frontend observer panel skips the request for anyone but the literal creator; the dashboard still sends it for an admin and the server ignores it.
+
 ## 16. Follow-ups
 
 - FU-1: Reaction-time summaries on the dashboard.
-- FU-2: Pre-existing debt in touched files: route-level `AgentService` call in `backend/app/api/v1/agents.py:803`; `turn_engine.py` size; `pending_notify` non-durability for the other notes it carries (released observations, approval ballots).
+- FU-2: Pre-existing debt in touched files: route-level `AgentService` call in `backend/app/api/v1/agents.py:803`; `turn_engine.py` size; `pending_notify` non-durability for the other notes it carries (released observations, approval ballots). The M1 audit adds two of the same kind: `turn_engine.py` reaches the conversation context's infrastructure repositories directly (now including `roles_of`), and `app/api/v1/observations.py` imports conversation application modules instead of the facade.
+- FU-3: The research export loads every alert in the exported rooms and applies the date window in Python (`_in_range` in `app/workers/tasks/conversation.py`); push `created_after`/`created_before` into `list_alerts_for_rooms` as the message and observation queries already do.
+- FU-4: The dashboard alerts route decides which rooms an alert reader may see (`app/api/v1/dashboard.py`); move that rule behind a conversation facade method.
+- FU-5: `alert_reason` is model-written and can be steered by room participants; consider labelling it as the analyst's wording in the teacher UI.
