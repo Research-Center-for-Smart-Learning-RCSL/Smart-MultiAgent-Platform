@@ -14,7 +14,9 @@ until 2026-11-01 is frozen in `archive/board-history-to-2026-11.md`.
 
 ## Ready now
 
-None.
+| Dossier | Type | Status | Title |
+|---|---|---|---|
+| [`2026-11-09-classroom-agent-collaboration`](2026-11-09-classroom-agent-collaboration/spec.md) | feature | draft | Classroom agent collaboration: alert reaction time, analyst notices, peer reply review, and dashboard-driven agent design |
 
 ## Blocked
 
