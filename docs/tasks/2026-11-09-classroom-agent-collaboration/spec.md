@@ -195,11 +195,11 @@ This change adds agent tools and LLM prompt surfaces, so Part F of `check-securi
 - [x] AC-11: The dashboard collaboration log lists notices with error, suggestion, decision and reason for rooms the caller created; the export contains `analyst_notices.csv`.
 
 **M3**
-- [ ] AC-12: A peer binding's turn in a room with a teacher binding emits no `agent.token` frames and no `message.created` before a decision, and is offered only read-only tools.
-- [ ] AC-13: `approve` posts the draft, `modify` posts the revised text, both as the peer agent with the review id in metadata; `reject` posts nothing and the peer's next turn is told its draft was not shown.
-- [ ] AC-14: `defer` re-reviews after the given minutes with the refreshed transcript; a third deferral, a missed deadline, or a missing teacher binding expires the review unposted.
-- [ ] AC-15: A duplicated or retried review job posts at most one message.
-- [ ] AC-16: Peer reviews appear in the dashboard collaboration log and in `peer_reviews.csv`.
+- [x] AC-12: A peer binding's turn in a room with a teacher binding emits no `agent.token` frames and no `message.created` before a decision, and is offered only read-only tools.
+- [x] AC-13: `approve` posts the draft, `modify` posts the revised text, both as the peer agent with the review id in metadata; `reject` posts nothing and the peer's next turn is told its draft was not shown.
+- [x] AC-14: `defer` re-reviews after the given minutes with the refreshed transcript; a third deferral, a missed deadline, or a missing teacher binding expires the review unposted.
+- [x] AC-15: A duplicated or retried review job posts at most one message.
+- [x] AC-16: Peer reviews appear in the dashboard collaboration log and in `peer_reviews.csv`.
 
 **M4**
 - [ ] AC-17: Every change of an agent's `system_prompt` records a revision with its source, and restoring a revision sets the prompt back and records a `restore` revision.
