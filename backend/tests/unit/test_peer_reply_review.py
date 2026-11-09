@@ -39,6 +39,7 @@ from contexts.conversation.domain.models import (
     PeerReviewExpiry,
     PeerReviewStatus,
 )
+from contexts.conversation.interfaces.facade import ConversationFacade
 from shared_kernel.auth.permissions import Principal
 from tests.unit.turn_engine_fakes import FakeDB, PublisherSpy, make_agent, run_locked, wire_engine
 
@@ -105,6 +106,7 @@ class _Reviews:
     async def create(self, **kw: Any) -> PeerReplyReview:
         expired = kw.pop("expired")
         decided_at = kw.pop("decided_at")
+        kw["reply_metadata"] = kw.get("reply_metadata") or {}
         r = _review(**kw, created_at=self.clock)
         if expired is not None:
             r = dataclasses.replace(
@@ -191,7 +193,11 @@ def world(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
 async def _held(w: SimpleNamespace) -> PeerReplyReview:
     review = await w.service.hold(
-        chatroom_id=w.room, peer_agent_id=w.peer, draft="Try 3 times 4.", trigger_message_id=None
+        chatroom_id=w.room,
+        peer_agent_id=w.peer,
+        draft="Try 3 times 4.",
+        trigger_message_id=None,
+        reply_metadata={"tool_rounds": 1, "rag_sources": [{"doc": "d1"}]},
     )
     assert review is not None
     return review
@@ -240,7 +246,13 @@ class TestDecide:
         [sent] = world.sent
         assert sent["agent_id"] == world.peer
         assert sent["content_md"] == "Try 3 times 4."
-        assert sent["metadata"] == {"peer_review_id": str(review.id), "peer_review_modified": False}
+        # The held turn's metadata (citations, skill reads, synthesis markers) survives.
+        assert sent["metadata"] == {
+            "tool_rounds": 1,
+            "rag_sources": [{"doc": "d1"}],
+            "peer_review_id": str(review.id),
+            "peer_review_modified": False,
+        }
         assert world.reviews.posted[review.id] == outcome.message.id
 
     async def test_modify_posts_the_revision_as_the_peer(self, world: SimpleNamespace) -> None:
@@ -614,6 +626,7 @@ class TestPeerTurn:
         [held] = peer_facade.held
         assert held["draft"] == "It is 12."
         assert held["peer_agent_id"] == agent.id
+        assert held["reply_metadata"]["trigger"] == "every_n_messages"
         assert seen["enqueued"] == [("review_peer_reply", str(peer_facade.hold_result.id))]
         # AC-13: the rejection rode in this turn and is marked told by its commit.
         assert "Too direct." in seen["system_text"]
@@ -898,7 +911,8 @@ class TestDashboardCollaboration:
         ]
         asked: list[tuple[str, dict[str, Any]]] = []
 
-        class _Conv:
+        # The real facade's merge, over faked reads.
+        class _Conv(ConversationFacade):
             def __init__(self, db: Any) -> None:
                 pass
 

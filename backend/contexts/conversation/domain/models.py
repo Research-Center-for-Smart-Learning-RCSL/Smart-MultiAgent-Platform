@@ -154,6 +154,8 @@ PEER_REVIEW_MAX_ATTEMPTS = 3
 PEER_REVIEW_DEFER_MINUTES = (1, 10)
 PEER_REVIEW_REASON_MAX_CHARS = 500
 PEER_REVIEW_REVISED_MAX_CHARS = 20_000
+#: Rejections told per peer turn, bounding its prompt; the rest follow on later turns.
+PEER_REVIEW_TOLD_PER_TURN = 5
 
 
 class ChatroomAgentBubbleColor(str, enum.Enum):
@@ -428,6 +430,9 @@ class PeerReplyReview:
     expire_reason: PeerReviewExpiry | None = None
     decided_at: datetime | None = None
     posted_message_id: uuid.UUID | None = None
+    #: The turn's reply metadata (RAG sources, skill reads, synthesis markers),
+    #: carried onto the posted message so a held reply loses none of it.
+    reply_metadata: dict[str, Any] = field(default_factory=dict)
 
     def status_at(self, now: datetime) -> PeerReviewStatus:
         if self.status is PeerReviewStatus.PENDING and now >= self.due_at:

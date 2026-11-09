@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import assert_project_role, is_project_owner_or_admin
 from contexts.agents.interfaces.facade import AgentsFacade
-from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.conversation.interfaces.facade import AnalystNotice, ConversationFacade, PeerReplyReview
 from contexts.dashboard.interfaces.facade import DashboardFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.dependencies import current_principal
@@ -277,20 +277,22 @@ class DashboardCollaborationOut(BaseModel):
 async def dashboard_collaboration(
     workspace_id: uuid.UUID = Path(...),
     limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0, le=10_000),
+    # The log merges two sources read to the page's end (D-10), so the offset is
+    # held well below the other dashboard lists' cap.
+    offset: int = Query(0, ge=0, le=1_000),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> DashboardCollaborationOut:
     """The collaboration log of the rooms the caller created ([R34.03], [R34.06]).
 
     Notices and held drafts are as confidential as observations ([R28.03]): only
-    the room's creator reads them, whoever else may open the room. The two
-    sources are each read newest first up to the requested page's end and merged,
-    so a page is exact without a shared cursor."""
+    the room's creator reads them, whoever else may open the room."""
     own = await _resolve_own_rooms(db=db, principal=principal, workspace_id=workspace_id)
-    facade = ConversationFacade(db)
-    notices = await facade.list_notices_for_rooms(chatroom_ids=list(own), limit=offset + limit)
-    reviews = await facade.list_peer_reviews_for_rooms(chatroom_ids=list(own), limit=offset + limit)
+    log = await ConversationFacade(db).collaboration_log_for_rooms(
+        chatroom_ids=list(own), limit=limit, offset=offset
+    )
+    reviews = [e for e in log if isinstance(e, PeerReplyReview)]
+    notices = [e for e in log if not isinstance(e, PeerReplyReview)]
     names = await AgentsFacade(db).agent_names(
         list(
             {r.analyst_agent_id for r in notices}
@@ -300,8 +302,9 @@ async def dashboard_collaboration(
         )
     )
     now = dt.datetime.now(dt.UTC)
-    entries: list[CollaborationEntryOut | PeerReviewEntryOut] = [
-        CollaborationEntryOut(
+
+    def _notice(r: AnalystNotice) -> CollaborationEntryOut:
+        return CollaborationEntryOut(
             kind="analyst_notice",
             id=r.id,
             room_id=r.chatroom_id,
@@ -318,10 +321,9 @@ async def dashboard_collaboration(
             reason=r.reason,
             responded_at=r.responded_at,
         )
-        for r in notices
-    ]
-    entries.extend(
-        PeerReviewEntryOut(
+
+    def _review(r: PeerReplyReview) -> PeerReviewEntryOut:
+        return PeerReviewEntryOut(
             kind="peer_review",
             id=r.id,
             room_id=r.chatroom_id,
@@ -338,10 +340,10 @@ async def dashboard_collaboration(
             decided_at=r.decided_at,
             posted_message_id=r.posted_message_id,
         )
-        for r in reviews
+
+    return DashboardCollaborationOut(
+        entries=[_review(e) if isinstance(e, PeerReplyReview) else _notice(e) for e in log]
     )
-    entries.sort(key=lambda e: (e.created_at, str(e.id)), reverse=True)
-    return DashboardCollaborationOut(entries=entries[offset : offset + limit])
 
 
 @router.get("/{workspace_id}/dashboard/summary")

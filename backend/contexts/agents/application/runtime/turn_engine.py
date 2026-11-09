@@ -92,10 +92,9 @@ from contexts.conversation.interfaces import (
 from contexts.conversation.interfaces.facade import (
     ConversationFacade,
     MessageAttachment,
+    ReviewDecided,
     ReviewDeferred,
-    ReviewOutcome,
     ReviewPosted,
-    ReviewRefused,
     RoomGuests,
     RoomPresenceSnapshot,
 )
@@ -4016,6 +4015,7 @@ class TurnEngine:
                     peer_agent_id=agent.id,
                     draft=final_text,
                     trigger_message_id=trigger_message_id,
+                    reply_metadata=reply_meta,
                 )
                 await self._mark_rejections_told(told_rejections)
                 await self._audit(
@@ -4084,34 +4084,16 @@ class TurnEngine:
             # `room is not None` always holds here (the observer branch returned
             # above) — the guard exists to narrow the type and stay fail-closed.
             if room is not None:
-                pub = Publisher(room)
                 async with _post_commit("message.created emit"):
-                    await pub.emit(
-                        "message.created",
-                        {
-                            "message_id": str(msg.id),
-                            "sender_type": "agent",
-                            "sender_id": str(agent.id),
-                            "created_at": msg.created_at.isoformat() if msg.created_at else None,
-                        },
-                    )
+                    await self._emit_message_created(room, agent.id, msg)
                 # `synthesis_meta` rides along so the client can mark the bubble
                 # without refetching the message to read its metadata.
                 async with _post_commit("agent.finished emit"):
-                    await pub.emit(
+                    await Publisher(room).emit(
                         "agent.finished",
                         {"message_id": str(msg.id), "agent_id": str(agent.id), **synthesis_meta},
                     )
-            # K.4: agent replies feed workflow `message` triggers/waits exactly
-            # like user sends do (sender_filter agent/any). Best-effort,
-            # post-commit — never fails the turn.
-            async with _post_commit("workflow message signal"):
-                await self._dispatch_agent_message_signal(chatroom_id, final_text)
-            # R15.01: an agent reply counts toward other bound agents'
-            # every_n triggers and touches their silence timers; R11.02:
-            # it also feeds GraphRAG message triggers.
-            async with _post_commit("agent reply wakeups"):
-                await self._dispatch_agent_reply_wakeups(agent, chatroom_id, msg.id)
+            await self._dispatch_reply_followups(agent, chatroom_id, msg.id, final_text)
             async with _post_commit("settle pending approvals"):
                 await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
             return TurnResult(
@@ -4463,7 +4445,7 @@ class TurnEngine:
                 render_review_block(review, peer_name=peer.name),
             ]
         ).strip()
-        outcomes: list[ReviewOutcome] = []
+        outcomes: list[ReviewDecided] = []
         registry = ToolRegistry(
             [
                 build_review_peer_reply_tool(
@@ -4509,25 +4491,42 @@ class TurnEngine:
         if isinstance(outcome, ReviewPosted):
             message = outcome.message
             async with _post_commit("message.created emit (peer review)"):
-                await Publisher(room_channel(chatroom_id)).emit(
-                    "message.created",
-                    {
-                        "message_id": str(message.id),
-                        "sender_type": "agent",
-                        "sender_id": str(peer.id),
-                        "created_at": message.created_at.isoformat() if message.created_at else None,
-                    },
-                )
-            async with _post_commit("workflow message signal (peer review)"):
-                await self._dispatch_agent_message_signal(chatroom_id, message.content_md)
-            async with _post_commit("agent reply wakeups (peer review)"):
-                await self._dispatch_agent_reply_wakeups(peer, chatroom_id, message.id)
+                await self._emit_message_created(room_channel(chatroom_id), peer.id, message)
+            await self._dispatch_reply_followups(peer, chatroom_id, message.id, message.content_md)
         elif isinstance(outcome, ReviewDeferred):
             async with _post_commit("peer review re-review"):
                 from shared_kernel.queue import enqueue
 
                 await enqueue("review_peer_reply", str(review_id), _defer_by=outcome.delay)
-        return outcome.review.status.value if not isinstance(outcome, ReviewRefused) else "refused"
+        return outcome.review.status.value
+
+    @staticmethod
+    async def _emit_message_created(room: str, sender_id: uuid.UUID, msg: Any) -> None:
+        """After the commit that wrote ``msg``, so a client's refetch sees it."""
+        await Publisher(room).emit(
+            "message.created",
+            {
+                "message_id": str(msg.id),
+                "sender_type": "agent",
+                "sender_id": str(sender_id),
+                "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            },
+        )
+
+    async def _dispatch_reply_followups(
+        self, sender: Agent, chatroom_id: uuid.UUID, message_id: uuid.UUID, content: str
+    ) -> None:
+        """What every posted agent message owes the room after commit, each step
+        best-effort on its own."""
+        # K.4: agent replies feed workflow `message` triggers/waits exactly like
+        # user sends do (sender_filter agent/any).
+        async with _post_commit("workflow message signal"):
+            await self._dispatch_agent_message_signal(chatroom_id, content)
+        # R15.01: an agent reply counts toward other bound agents' every_n
+        # triggers and touches their silence timers; R11.02: it also feeds
+        # GraphRAG message triggers.
+        async with _post_commit("agent reply wakeups"):
+            await self._dispatch_agent_reply_wakeups(sender, chatroom_id, message_id)
 
     async def _dispatch_notice_wakes(self, chatroom_id: uuid.UUID, wakes: list[dict[str, Any]]) -> None:
         """Wake the teacher for the notices this turn committed ([R34.04]).

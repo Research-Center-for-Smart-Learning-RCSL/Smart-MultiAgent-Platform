@@ -685,12 +685,9 @@ class TestDashboardCollaboration:
                     SimpleNamespace(id=theirs, name="theirs", created_by_user_id=uuid.uuid4()),
                 ]
 
-            async def list_notices_for_rooms(self, **kw: Any) -> Any:
+            async def collaboration_log_for_rooms(self, **kw: Any) -> Any:
                 asked.append(kw)
                 return [old]
-
-            async def list_peer_reviews_for_rooms(self, **kw: Any) -> Any:
-                return []
 
         class _Tenancy:
             def __init__(self, db: Any) -> None:
@@ -714,12 +711,12 @@ class TestDashboardCollaboration:
         out = await mod.dashboard_collaboration(
             workspace_id=uuid.uuid4(),
             limit=20,
-            offset=0,
+            offset=40,
             principal=Principal(user_id=me, is_admin=False, email_verified=True),
             db=SimpleNamespace(),
         )
 
-        assert asked == [{"chatroom_ids": [mine], "limit": 20}]
+        assert asked == [{"chatroom_ids": [mine], "limit": 20, "offset": 40}]
         entry = out.entries[0]
         assert entry.kind == "analyst_notice"
         assert (entry.room_name, entry.from_agent_name, entry.to_agent_name) == ("mine", "AA", "TA")

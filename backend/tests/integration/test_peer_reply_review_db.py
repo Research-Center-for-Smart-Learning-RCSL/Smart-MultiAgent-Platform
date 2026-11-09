@@ -96,7 +96,11 @@ async def room(
 
 async def _hold(session: AsyncSession, room: Room) -> PeerReplyReview:
     review = await PeerReviewService(session).hold(
-        chatroom_id=room.chatroom_id, peer_agent_id=room.peer, draft="It is 12.", trigger_message_id=None
+        chatroom_id=room.chatroom_id,
+        peer_agent_id=room.peer,
+        draft="It is 12.",
+        trigger_message_id=None,
+        reply_metadata={"tool_rounds": 2},
     )
     await session.commit()
     assert review is not None
@@ -153,6 +157,7 @@ class TestDuplicateJobs:
             assert msg.sender_id == room.peer
             assert msg.content_md == "It is 12."
             assert msg._mapping["metadata"]["peer_review_id"] == str(review.id)
+            assert msg._mapping["metadata"]["tool_rounds"] == 2
             row = (
                 await session.execute(
                     t.peer_reply_reviews.select().where(t.peer_reply_reviews.c.id == review.id)

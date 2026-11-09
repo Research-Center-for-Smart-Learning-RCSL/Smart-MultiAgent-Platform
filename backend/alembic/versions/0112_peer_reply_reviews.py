@@ -52,6 +52,7 @@ def upgrade() -> None:
         ),
         sa.Column("teacher_binding_id", pg.UUID(as_uuid=True), nullable=True),
         sa.Column("draft", sa.Text, nullable=False),
+        sa.Column("reply_metadata", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
         sa.Column(
             "trigger_message_id",
             pg.UUID(as_uuid=True),

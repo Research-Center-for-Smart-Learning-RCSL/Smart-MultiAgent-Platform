@@ -39,8 +39,8 @@ from contexts.conversation.interfaces.facade import (
     NoticeRefused,
     PeerReplyReview,
     PeerReviewDecision,
+    ReviewDecided,
     ReviewDeferred,
-    ReviewOutcome,
     ReviewPosted,
     ReviewRefused,
 )
@@ -50,6 +50,8 @@ logger = logging.getLogger(__name__)
 NOTIFY_TOOL_NAME = "notify_teacher_agent"
 RESPOND_TOOL_NAME = "respond_to_notice"
 REVIEW_TOOL_NAME = "review_peer_reply"
+# Enough for the peer to recognise its own reply; the reason is what it needs.
+_TOLD_DRAFT_MAX_CHARS = 2_000
 
 _REFUSALS: dict[str, str] = {
     "not_analyst": "This binding is no longer the room's analyst, so the notice was not sent.",
@@ -269,7 +271,7 @@ def build_review_peer_reply_tool(
     *,
     review: PeerReplyReview,
     teacher_agent_id: uuid.UUID,
-    outcome_sink: list[ReviewOutcome],
+    outcome_sink: list[ReviewDecided],
 ) -> Tool:
     """The review turn's only tool. ``outcome_sink`` receives the one decision
     the engine acts on after commit; later calls are refused."""
@@ -343,7 +345,10 @@ def render_rejections_block(reviews: Sequence[PeerReplyReview]) -> str:
         "are the teacher agent's.",
     ]
     lines.extend(
-        json.dumps({"your_reply": r.draft, "teacher_reason": r.reason}, ensure_ascii=False) for r in reviews
+        json.dumps(
+            {"your_reply": r.draft[:_TOLD_DRAFT_MAX_CHARS], "teacher_reason": r.reason}, ensure_ascii=False
+        )
+        for r in reviews
     )
     return "\n".join(lines)
 

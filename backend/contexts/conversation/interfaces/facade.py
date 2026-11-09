@@ -28,6 +28,7 @@ from contexts.conversation.application.guest_session_service import (
 from contexts.conversation.application.notice_service import NoticeCreated, NoticeRefused
 from contexts.conversation.application.peer_review_service import (
     ReviewClosed,
+    ReviewDecided,
     ReviewDeferred,
     ReviewOutcome,
     ReviewPosted,
@@ -1157,6 +1158,7 @@ class ConversationFacade:
         peer_agent_id: uuid.UUID,
         draft: str,
         trigger_message_id: uuid.UUID | None,
+        reply_metadata: dict[str, Any] | None = None,
     ) -> PeerReplyReview | None:
         """[R34.06]. Written in the caller's transaction; the caller owns commit
         and the review job after it."""
@@ -1167,6 +1169,7 @@ class ConversationFacade:
             peer_agent_id=peer_agent_id,
             draft=draft,
             trigger_message_id=trigger_message_id,
+            reply_metadata=reply_metadata,
         )
 
     async def open_peer_review(self, review_id: uuid.UUID) -> PeerReplyReview | None:
@@ -1225,19 +1228,27 @@ class ConversationFacade:
         created_after: datetime | None = None,
         created_before: datetime | None = None,
         limit: int | None = None,
-        offset: int = 0,
     ) -> Sequence[PeerReplyReview]:
-        """Reviews of a set of rooms, newest first ([R34.03]). The caller decides
+        """Reviews of a set of rooms, newest first ([R34.06]). The caller decides
         which rooms the reader may see."""
         from contexts.conversation.application.peer_review_service import PeerReviewService
 
         return await PeerReviewService(self._db).list_for_rooms(
-            chatroom_ids=chatroom_ids,
-            created_after=created_after,
-            created_before=created_before,
-            limit=limit,
-            offset=offset,
+            chatroom_ids=chatroom_ids, created_after=created_after, created_before=created_before, limit=limit
         )
+
+    async def collaboration_log_for_rooms(
+        self, *, chatroom_ids: Sequence[uuid.UUID], limit: int, offset: int
+    ) -> list[AnalystNotice | PeerReplyReview]:
+        """Notices and peer reviews of a set of rooms as one list, newest first
+        ([R34.03], [R34.06]). Each source is read up to the page's end and the two
+        are merged, so a page is exact without a shared cursor; the caller bounds
+        ``offset``. The caller decides which rooms the reader may see."""
+        notices = await self.list_notices_for_rooms(chatroom_ids=chatroom_ids, limit=offset + limit)
+        reviews = await self.list_peer_reviews_for_rooms(chatroom_ids=chatroom_ids, limit=offset + limit)
+        merged: list[AnalystNotice | PeerReplyReview] = [*notices, *reviews]
+        merged.sort(key=lambda e: (e.created_at, str(e.id)), reverse=True)
+        return merged[offset : offset + limit]
 
     async def record_alert_views(
         self,
@@ -1505,6 +1516,7 @@ __all__ = [
     "CLASS_START_MIN_PARTICIPANTS_RANGE",
     "HEADCOUNT_PRESENCE_LIMIT",
     "ActivityControlGrant",
+    "AnalystNotice",
     "AttachmentExtractionStatus",
     "AttachmentStatus",
     "BindingWakeupState",
@@ -1522,6 +1534,7 @@ __all__ = [
     "PeerReviewDecision",
     "PeerReviewExpiry",
     "ReviewClosed",
+    "ReviewDecided",
     "ReviewDeferred",
     "ReviewOutcome",
     "ReviewPosted",

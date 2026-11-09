@@ -15,13 +15,16 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.domain.models import PeerReplyReview, PeerReviewExpiry, PeerReviewStatus
+from contexts.conversation.domain.models import (
+    PEER_REVIEW_TOLD_PER_TURN,
+    PeerReplyReview,
+    PeerReviewExpiry,
+    PeerReviewStatus,
+)
 from contexts.conversation.infrastructure import tables as t
 
 _r = t.peer_reply_reviews
 _PENDING = PeerReviewStatus.PENDING.value
-# Bounds the peer's prompt; the rest are told on later turns.
-PEER_REVIEW_TOLD_PER_TURN = 5
 
 
 def _row_to_review(row: Any) -> PeerReplyReview:
@@ -43,6 +46,7 @@ def _row_to_review(row: Any) -> PeerReplyReview:
         expire_reason=PeerReviewExpiry(row.expire_reason) if row.expire_reason else None,
         decided_at=row.decided_at,
         posted_message_id=row.posted_message_id,
+        reply_metadata=dict(row.reply_metadata or {}),
     )
 
 
@@ -63,8 +67,10 @@ class PeerReviewRepository:
         due_at: datetime,
         expired: PeerReviewExpiry | None = None,
         decided_at: datetime | None = None,
+        reply_metadata: dict[str, Any] | None = None,
     ) -> PeerReplyReview:
         values: dict[str, Any] = {
+            "reply_metadata": reply_metadata or {},
             "chatroom_id": chatroom_id,
             "peer_agent_id": peer_agent_id,
             "peer_binding_id": peer_binding_id,
@@ -175,7 +181,6 @@ class PeerReviewRepository:
         created_after: datetime | None = None,
         created_before: datetime | None = None,
         limit: int | None = None,
-        offset: int = 0,
     ) -> Sequence[PeerReplyReview]:
         """Newest first."""
         if not chatroom_ids:
@@ -185,7 +190,7 @@ class PeerReviewRepository:
             stmt = stmt.where(_r.c.created_at >= created_after)
         if created_before is not None:
             stmt = stmt.where(_r.c.created_at < created_before)
-        stmt = stmt.order_by(_r.c.created_at.desc(), _r.c.id.desc()).offset(offset)
+        stmt = stmt.order_by(_r.c.created_at.desc(), _r.c.id.desc())
         if limit is not None:
             stmt = stmt.limit(limit)
         return [_row_to_review(r) for r in (await self._db.execute(stmt)).all()]

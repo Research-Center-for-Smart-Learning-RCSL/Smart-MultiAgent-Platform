@@ -35852,7 +35852,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/dashboard/collaboration": {
       "get": {
-        "description": "The collaboration log of the rooms the caller created ([R34.03], [R34.06]).\n\nNotices and held drafts are as confidential as observations ([R28.03]): only\nthe room's creator reads them, whoever else may open the room. The two\nsources are each read newest first up to the requested page's end and merged,\nso a page is exact without a shared cursor.",
+        "description": "The collaboration log of the rooms the caller created ([R34.03], [R34.06]).\n\nNotices and held drafts are as confidential as observations ([R28.03]): only\nthe room's creator reads them, whoever else may open the room.",
         "operationId": "dashboard_collaboration_api_v1_workspaces__workspace_id__dashboard_collaboration_get",
         "parameters": [
           {
@@ -35883,7 +35883,7 @@
             "required": false,
             "schema": {
               "default": 0,
-              "maximum": 10000,
+              "maximum": 1000,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"

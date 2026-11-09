@@ -13,15 +13,16 @@ and posts nothing.
 from __future__ import annotations
 
 import enum
-import re
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.application.message_service import MessageService
+from contexts.conversation.application.notice_service import clip
 from contexts.conversation.domain.models import (
     PEER_REVIEW_DEFER_MINUTES,
     PEER_REVIEW_GRACE,
@@ -41,13 +42,6 @@ from contexts.conversation.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
-
-_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-
-
-def _clean(text: str, limit: int) -> str:
-    # PostgreSQL text rejects NUL, and these writes share a turn's transaction.
-    return _CONTROL_CHARS.sub("", text).strip()[:limit]
 
 
 class ReviewRefusal(str, enum.Enum):
@@ -87,7 +81,8 @@ class ReviewRefused:
     reason: ReviewRefusal
 
 
-ReviewOutcome = ReviewPosted | ReviewClosed | ReviewDeferred | ReviewRefused
+ReviewDecided = ReviewPosted | ReviewClosed | ReviewDeferred
+ReviewOutcome = ReviewDecided | ReviewRefused
 
 
 class PeerReviewService:
@@ -103,6 +98,7 @@ class PeerReviewService:
         peer_agent_id: uuid.UUID,
         draft: str,
         trigger_message_id: uuid.UUID | None,
+        reply_metadata: dict[str, Any] | None = None,
     ) -> PeerReplyReview | None:
         """Hold a peer's draft. Born expired when the room has no teacher (Q-9);
         None when the peer is no longer bound."""
@@ -124,6 +120,7 @@ class PeerReviewService:
             due_at=current + PEER_REVIEW_GRACE,
             expired=None if teacher else PeerReviewExpiry.NO_TEACHER,
             decided_at=None if teacher else current,
+            reply_metadata=reply_metadata,
         )
         if teacher is None:
             await self._audit(review)
@@ -154,15 +151,18 @@ class PeerReviewService:
         revised_text: str | None = None,
         defer_minutes: int | None = None,
     ) -> ReviewOutcome:
-        reason = _clean(reason, PEER_REVIEW_REASON_MAX_CHARS)
+        reason = clip(reason, PEER_REVIEW_REASON_MAX_CHARS)
         if not reason:
             return ReviewRefused(ReviewRefusal.EMPTY_REASON)
-        revised = _clean(revised_text or "", PEER_REVIEW_REVISED_MAX_CHARS)
+        revised = clip(revised_text or "", PEER_REVIEW_REVISED_MAX_CHARS)
         if decision is PeerReviewDecision.MODIFY and not revised:
             return ReviewRefused(ReviewRefusal.EMPTY_REVISION)
         lo, hi = PEER_REVIEW_DEFER_MINUTES
-        if decision is PeerReviewDecision.DEFER and (defer_minutes is None or not lo <= defer_minutes <= hi):
-            return ReviewRefused(ReviewRefusal.BAD_DEFER)
+        delay: timedelta | None = None
+        if decision is PeerReviewDecision.DEFER:
+            if defer_minutes is None or not lo <= defer_minutes <= hi:
+                return ReviewRefused(ReviewRefusal.BAD_DEFER)
+            delay = timedelta(minutes=defer_minutes)
 
         review = await self._reviews.get(review_id)
         if review is None or review.teacher_agent_id != teacher_agent_id:
@@ -172,11 +172,10 @@ class PeerReviewService:
             return ReviewClosed(expired) if expired else ReviewRefused(ReviewRefusal.CLOSED)
 
         current = now()
-        if decision is PeerReviewDecision.DEFER:
+        if delay is not None:
             if review.attempt >= PEER_REVIEW_MAX_ATTEMPTS:
                 expired = await self.expire(review_id, PeerReviewExpiry.DEFER_LIMIT)
                 return ReviewClosed(expired) if expired else ReviewRefused(ReviewRefusal.CLOSED)
-            delay = timedelta(minutes=defer_minutes or lo)
             deferred = await self._reviews.defer(
                 review_id=review_id,
                 attempt=review.attempt,
@@ -207,6 +206,7 @@ class PeerReviewService:
             agent_id=decided.peer_agent_id,
             content_md=decided.revised_text or decided.draft,
             metadata={
+                **decided.reply_metadata,
                 "peer_review_id": str(decided.id),
                 "peer_review_modified": status is PeerReviewStatus.MODIFIED,
             },
@@ -240,14 +240,9 @@ class PeerReviewService:
         created_after: datetime | None = None,
         created_before: datetime | None = None,
         limit: int | None = None,
-        offset: int = 0,
     ) -> Sequence[PeerReplyReview]:
         return await self._reviews.list_for_rooms(
-            chatroom_ids=chatroom_ids,
-            created_after=created_after,
-            created_before=created_before,
-            limit=limit,
-            offset=offset,
+            chatroom_ids=chatroom_ids, created_after=created_after, created_before=created_before, limit=limit
         )
 
     async def _bindings_unchanged(self, review: PeerReplyReview) -> bool:
@@ -283,6 +278,7 @@ class PeerReviewService:
 __all__ = [
     "PeerReviewService",
     "ReviewClosed",
+    "ReviewDecided",
     "ReviewDeferred",
     "ReviewOutcome",
     "ReviewPosted",
