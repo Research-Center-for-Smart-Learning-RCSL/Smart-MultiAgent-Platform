@@ -8,10 +8,11 @@ import { renderView } from '../../../../tests/utils'
 import PromptRevisionsCard from '../components/PromptRevisionsCard.vue'
 
 const confirmMock = vi.hoisted(() => vi.fn())
+const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
 
 vi.mock('@shared/composables', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
-  return { ...actual, useConfirmDialog: () => ({ confirm: confirmMock }) }
+  return { ...actual, useConfirmDialog: () => ({ confirm: confirmMock }), useToast: () => toastMock }
 })
 
 function revision(over: Record<string, unknown> = {}) {
@@ -31,7 +32,11 @@ function revision(over: Record<string, unknown> = {}) {
 const PROPS = { agentId: 'agent_1', version: 5, currentPrompt: 'new prompt', dirty: false }
 
 describe('PromptRevisionsCard', () => {
-  afterEach(() => confirmMock.mockReset())
+  afterEach(() => {
+    confirmMock.mockReset()
+    toastMock.error.mockReset()
+    toastMock.success.mockReset()
+  })
 
   it('shows the empty state before the prompt ever changed', async () => {
     server.use(http.get('/api/agents/agent_1/prompt-revisions', () => HttpResponse.json([])))
@@ -77,6 +82,23 @@ describe('PromptRevisionsCard', () => {
     expect(confirmMock.mock.calls[0]![0].message).toBe('agents.revisions.confirmDirty')
     expect(restored).not.toBeNull()
     expect(restored!.ifMatch).toBe('5')
+  })
+
+  it('reports a concurrent edit as a conflict and reloads the agent', async () => {
+    server.use(
+      http.get('/api/agents/agent_1/prompt-revisions', () => HttpResponse.json([revision()])),
+      http.post('/api/agents/agent_1/prompt-revisions/rev_1/restore', () =>
+        HttpResponse.json(
+          { type: 'https://smap.dev/problems/agents/version-mismatch', title: 'x', status: 412 },
+          { status: 412, headers: { 'Content-Type': 'application/problem+json' } },
+        ),
+      ),
+    )
+    confirmMock.mockResolvedValue(true)
+    const wrapper = await renderView(PromptRevisionsCard, { props: PROPS })
+    await flushPromises()
+    await wrapper.find('[data-testid="prompt-revision-restore"]').trigger('click')
+    await vi.waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('agents.revisions.conflict'))
   })
 
   it('does nothing when the restore is not confirmed', async () => {

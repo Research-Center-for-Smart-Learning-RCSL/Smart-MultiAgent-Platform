@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ClockIcon } from '@heroicons/vue/24/outline'
 import { SBadge, SButton, SCard, SEmptyState, SQueryError, SRelativeTime, SSkeleton } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
-import { ApiError } from '@shared/errors'
+import { isProblemWithType } from '@shared/transport'
 import type { PromptRevisionOut } from '@shared/api-client'
 import { agentsApi } from '../api'
 import { agentKeys } from '../queries'
@@ -42,7 +42,7 @@ const restoreMutation = useMutation({
     toast.success(t('agents.revisions.restored'))
   },
   onError: (err) => {
-    if (err instanceof ApiError && (err.status === 412 || err.status === 409)) {
+    if (isProblemWithType(err, '/agents/version-mismatch')) {
       toast.error(t('agents.revisions.conflict'))
       qc.invalidateQueries({ queryKey: agentKeys.agent(props.agentId) })
       return
