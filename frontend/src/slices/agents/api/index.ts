@@ -17,6 +17,7 @@ import type {
   ExamplePackOut,
   GraphRagConfigPatchIn,
   KnowmapConfigPatchIn,
+  PromptRevisionOut,
 } from '@shared/api-client'
 import type {
   AgentCreateInput,
@@ -414,6 +415,17 @@ export const agentsApi = {
 
   remove: (agentId: string, version: number): Promise<void> =>
     AgentsService.deleteAgentApiAgentsAgentIdDelete({ agentId, ifMatch: String(version) }),
+
+  /** Newest first ([R34.07]); empty until the prompt first changes. */
+  listPromptRevisions: (agentId: string): Promise<PromptRevisionOut[]> =>
+    AgentsService.listPromptRevisionsApiAgentsAgentIdPromptRevisionsGet({ agentId }),
+
+  restorePromptRevision: (agentId: string, revisionId: string, version: number): Promise<Agent> =>
+    AgentsService.restorePromptRevisionApiAgentsAgentIdPromptRevisionsRevisionIdRestorePost({
+      agentId,
+      revisionId,
+      ifMatch: String(version),
+    }),
 
   listExamplePacks: (projectId: string): Promise<ExamplePackOut[]> =>
     AgentsService.listAgentExamplePacksApiProjectsProjectIdAgentsExamplePacksGet({ projectId }),

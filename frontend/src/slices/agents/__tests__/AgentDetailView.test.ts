@@ -60,6 +60,7 @@ function seed(): void {
     http.get('/api/projects/proj_1/rag-configs', () => HttpResponse.json([])),
     http.get('/api/projects/proj_1/graphrag-configs', () => HttpResponse.json([])),
     http.get('/api/agents/agent_1/mcp', () => HttpResponse.json([])),
+    http.get('/api/agents/agent_1/prompt-revisions', () => HttpResponse.json([])),
     http.get('/api/agents/agent_1/concept-map-coverage', () =>
       HttpResponse.json({
         agent_id: 'agent_1',

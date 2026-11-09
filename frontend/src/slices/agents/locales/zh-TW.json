@@ -48,6 +48,28 @@
       "title": "僅限編輯者",
       "text": "只有專案擁有者可以檢視 AI Agent 設定。聊天室中的 Agent 仍會以名稱顯示。"
     },
+    "revisions": {
+      "title": "提示詞歷史",
+      "description": "這個 Agent 系統提示詞的每一次變更。還原某個版本本身也會記錄在這裡。",
+      "empty": "開始記錄以來，提示詞還沒有變更過。",
+      "version": "版本 {version}",
+      "current": "目前的提示詞",
+      "show": "顯示提示詞",
+      "restore": "還原",
+      "restored": "已還原提示詞。",
+      "restoreFailed": "無法還原提示詞。",
+      "conflict": "這個 Agent 在頁面載入後已被修改，頁面已重新載入，請再試一次。",
+      "confirmTitle": "還原這個提示詞？",
+      "confirmMessage": "Agent 的系統提示詞會換成這個版本。",
+      "confirmDirty": "Agent 的系統提示詞會換成這個版本，編輯器中尚未儲存的修改也會被捨棄。",
+      "retry": "重試",
+      "source": {
+        "initial": "記錄前",
+        "manual": "手動編輯",
+        "design": "課堂設計",
+        "restore": "還原"
+      }
+    },
     "list": {
       "title": "AI Agents",
       "actions": "AI Agent 操作",
