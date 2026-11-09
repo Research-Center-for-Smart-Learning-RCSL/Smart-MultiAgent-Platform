@@ -27,8 +27,11 @@ from contexts.conversation.domain.errors import (
     ObservationNotFound,
 )
 from contexts.conversation.domain.models import (
+    ALERT_REASON_MAX_CHARS,
     RELEASED_OBSERVATION_TYPE,
     AgentObservation,
+    AlertActionKind,
+    AlertViewSurface,
     ChatroomAgentRole,
     Message,
     SenderType,
@@ -71,6 +74,8 @@ class ObservationService:
         trigger_message_id: uuid.UUID | None = None,
         metadata: dict[str, Any] | None = None,
         blocks: list[dict[str, Any]] | None = None,
+        alert_reason: str | None = None,
+        is_alert: bool = False,
     ) -> AgentObservation:
         """Persist an observer turn's output. No WS emission here — the turn
         engine emits ``observation.created`` post-commit, mirroring how agent
@@ -89,6 +94,8 @@ class ObservationService:
             trigger_message_id=trigger_message_id,
             metadata=metadata,
             blocks=blocks,
+            is_alert=is_alert,
+            alert_reason=alert_reason[:ALERT_REASON_MAX_CHARS] if is_alert and alert_reason else None,
         )
 
     # ---- creator-side ------------------------------------------------------
@@ -195,6 +202,9 @@ class ObservationService:
         # R28.08: the queue push for private targets happens post-commit in the
         # route's _dispatch_release — nothing may reach Redis for a release the
         # DB could still roll back.
+        await self._observations.mark_first_action(
+            chatroom_id=chatroom_id, kind=AlertActionKind.RELEASED, observation_id=observation_id
+        )
 
         # R28.11: content never enters audit metadata.
         await audit.emit(
@@ -237,6 +247,9 @@ class ObservationService:
         deleted = await self._observations.soft_delete(chatroom_id=chatroom_id, observation_id=observation_id)
         if not deleted:
             raise ObservationNotFound(str(observation_id))
+        await self._observations.mark_first_action(
+            chatroom_id=chatroom_id, kind=AlertActionKind.DELETED, observation_id=observation_id
+        )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -248,6 +261,48 @@ class ObservationService:
                 metadata={"chatroom_id": str(chatroom_id)},
                 request_id=request_id,
             ),
+        )
+
+    # ---- alert reaction times ([R34.02]) ------------------------------------
+
+    async def record_views(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        observation_ids: Sequence[uuid.UUID],
+        via: AlertViewSurface,
+    ) -> int:
+        """The caller has established that the actor is this room's creator."""
+        return await self._observations.mark_viewed(
+            chatroom_id=chatroom_id, observation_ids=list(dict.fromkeys(observation_ids)), via=via
+        )
+
+    async def record_room_action(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        kind: AlertActionKind,
+    ) -> int:
+        """Close the room's open alerts if ``actor_user_id`` created the room.
+
+        The creator is the only reader of an alert ([R28.03]), so only the
+        creator's own actions can be a reaction to one."""
+        room = await self._rooms.get(chatroom_id)
+        if room is None or room.created_by_user_id != actor_user_id:
+            return 0
+        return await self._observations.mark_first_action(chatroom_id=chatroom_id, kind=kind)
+
+    async def list_alerts(
+        self,
+        *,
+        chatroom_ids: Sequence[uuid.UUID],
+        include_deleted: bool = False,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> Sequence[AgentObservation]:
+        return await self._observations.list_alerts(
+            chatroom_ids=chatroom_ids, include_deleted=include_deleted, limit=limit, offset=offset
         )
 
 

@@ -24,7 +24,7 @@ import pytest
 import contexts.agents.application.runtime.turn_engine as te
 from contexts.conversation.application.room_guests import RoomGuests
 from contexts.conversation.application.room_presence import RoomPresenceSnapshot
-from contexts.conversation.domain.models import ChatroomAgentRole
+from contexts.conversation.domain.models import ChatroomAgentRole, ClassroomRole
 from contexts.skills.application.binding_service import BoundSet
 
 NOW = datetime(2026, 7, 31, tzinfo=UTC)
@@ -154,6 +154,7 @@ def wire_engine(
     *,
     note: dict[str, Any],
     role: ChatroomAgentRole = ChatroomAgentRole.NORMAL,
+    classroom_role: ClassroomRole = ClassroomRole.NONE,
 ) -> tuple[Any, Trace]:
     """Wire a full `_run_locked` pass down to the provider stream.
 
@@ -182,8 +183,10 @@ def wire_engine(
         def __init__(self, db: object) -> None:
             pass
 
-        async def role_of(self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> ChatroomAgentRole:
-            return role
+        async def roles_of(
+            self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID
+        ) -> tuple[ChatroomAgentRole, ClassroomRole]:
+            return role, classroom_role
 
     monkeypatch.setattr(te, "ChatroomAgentRepository", _BindingRepo)
 

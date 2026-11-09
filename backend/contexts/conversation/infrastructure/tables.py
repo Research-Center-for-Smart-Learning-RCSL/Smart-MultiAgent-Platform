@@ -160,6 +160,14 @@ chatroom_agents = sa.Table(
     sa.Column("wakeup_room_overrides", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("wakeup_runtime_overrides", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("wakeup_runtime_started_at", sa.DateTime(timezone=True), nullable=True),
+    # [R34.01], migration 0110. Its CHECK against `role` and the one-teacher index
+    # are owned by the migration, like the 0078 grant CHECKs.
+    sa.Column(
+        "classroom_role",
+        pg.ENUM("none", "teacher", "peer", "analyst", name="classroom_agent_role", create_type=False),
+        nullable=False,
+        server_default=sa.text("'none'::classroom_agent_role"),
+    ),
 )
 
 agent_observations = sa.Table(
@@ -193,6 +201,13 @@ agent_observations = sa.Table(
     ),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # [R34.02], migration 0110.
+    sa.Column("is_alert", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    sa.Column("alert_reason", sa.Text, nullable=True),
+    sa.Column("first_viewed_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column("first_viewed_via", sa.Text, nullable=True),
+    sa.Column("first_action_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column("first_action_kind", sa.Text, nullable=True),
 )
 
 chatroom_guests = sa.Table(

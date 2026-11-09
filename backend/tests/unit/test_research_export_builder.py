@@ -198,7 +198,7 @@ class TestNoFullIds:
         assert json.loads(files["observations.json"])[0]["room_code"] == room_code(_ROOM_2)
         assert list(json.loads(files["transcripts.json"])) == [room_code(_ROOM_1)]
         manifest = json.loads(files["manifest.json"])
-        assert manifest["schema_version"] == 2
+        assert manifest["schema_version"] == 3
         assert manifest["workspace_code"] == workspace_code(_WORKSPACE)
         assert "workspace_id" not in manifest
         assert room_code(_ROOM_1) == f"r:{str(_ROOM_1)[:8]}"

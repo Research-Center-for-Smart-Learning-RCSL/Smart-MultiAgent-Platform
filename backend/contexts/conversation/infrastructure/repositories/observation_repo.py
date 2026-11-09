@@ -15,7 +15,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.domain.models import AgentObservation
+from contexts.conversation.domain.models import AgentObservation, AlertActionKind, AlertViewSurface
 from contexts.conversation.infrastructure import tables as t
 from shared_kernel.auth.clients import now
 
@@ -35,6 +35,12 @@ def _row_to_observation(row: Any) -> AgentObservation:
         released_by_user_id=row.released_by_user_id,
         created_at=row.created_at,
         deleted_at=row.deleted_at,
+        is_alert=bool(row.is_alert),
+        alert_reason=row.alert_reason,
+        first_viewed_at=row.first_viewed_at,
+        first_viewed_via=AlertViewSurface(row.first_viewed_via) if row.first_viewed_via else None,
+        first_action_at=row.first_action_at,
+        first_action_kind=AlertActionKind(row.first_action_kind) if row.first_action_kind else None,
     )
 
 
@@ -52,6 +58,8 @@ class ObservationRepository:
         trigger_message_id: uuid.UUID | None = None,
         metadata: dict[str, Any] | None = None,
         blocks: list[dict[str, Any]] | None = None,
+        is_alert: bool = False,
+        alert_reason: str | None = None,
     ) -> AgentObservation:
         row = (
             await self._db.execute(
@@ -64,6 +72,8 @@ class ObservationRepository:
                     trigger_message_id=trigger_message_id,
                     metadata=metadata or {},
                     blocks=blocks or [],
+                    is_alert=is_alert,
+                    alert_reason=alert_reason if is_alert else None,
                 )
                 .returning(t.agent_observations)
             )
@@ -263,6 +273,93 @@ class ObservationRepository:
             .values(deleted_at=now())
         )
         return bool(result.rowcount)
+
+    # ---- alert reaction times ([R34.02]) ------------------------------------
+    #
+    # Each "first" column is set by a conditional UPDATE that matches only while
+    # it is still NULL, so concurrent reports leave exactly the earliest committed
+    # one, and a later report is a no-op rather than an overwrite.
+
+    async def mark_viewed(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        observation_ids: Sequence[uuid.UUID],
+        via: AlertViewSurface,
+    ) -> int:
+        if not observation_ids:
+            return 0
+        result = await self._db.execute(
+            t.agent_observations.update()
+            .where(
+                t.agent_observations.c.chatroom_id == chatroom_id,
+                t.agent_observations.c.id.in_(observation_ids),
+                t.agent_observations.c.is_alert.is_(True),
+                t.agent_observations.c.deleted_at.is_(None),
+                t.agent_observations.c.first_viewed_at.is_(None),
+            )
+            .values(first_viewed_at=sa.func.now(), first_viewed_via=via.value)
+        )
+        return int(result.rowcount or 0)
+
+    async def mark_first_action(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        kind: AlertActionKind,
+        observation_id: uuid.UUID | None = None,
+    ) -> int:
+        """Close the open alerts of a room raised up to now, or one alert.
+
+        ``now()`` is the transaction's start time, so an alert recorded after the
+        acting transaction began is not closed by it."""
+        clauses: list[sa.ColumnElement[bool]] = [
+            t.agent_observations.c.chatroom_id == chatroom_id,
+            t.agent_observations.c.is_alert.is_(True),
+            t.agent_observations.c.first_action_at.is_(None),
+            t.agent_observations.c.created_at <= sa.func.now(),
+        ]
+        if observation_id is not None:
+            clauses.append(t.agent_observations.c.id == observation_id)
+        else:
+            clauses.append(t.agent_observations.c.deleted_at.is_(None))
+        result = await self._db.execute(
+            t.agent_observations.update()
+            .where(sa.and_(*clauses))
+            .values(first_action_at=sa.func.now(), first_action_kind=kind.value)
+        )
+        return int(result.rowcount or 0)
+
+    async def list_alerts(
+        self,
+        *,
+        chatroom_ids: Sequence[uuid.UUID],
+        include_deleted: bool,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> Sequence[AgentObservation]:
+        """Alerts of a set of rooms, newest first.
+
+        The research export passes ``include_deleted``: deleting an alert is one of
+        the reactions it measures, so a deleted alert is still a data point."""
+        if not chatroom_ids:
+            return []
+        clauses: list[sa.ColumnElement[bool]] = [
+            t.agent_observations.c.chatroom_id.in_(chatroom_ids),
+            t.agent_observations.c.is_alert.is_(True),
+        ]
+        if not include_deleted:
+            clauses.append(t.agent_observations.c.deleted_at.is_(None))
+        stmt = (
+            t.agent_observations.select()
+            .where(sa.and_(*clauses))
+            .order_by(t.agent_observations.c.created_at.desc(), t.agent_observations.c.id.desc())
+            .offset(offset)
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        rows = (await self._db.execute(stmt)).all()
+        return [_row_to_observation(r) for r in rows]
 
 
 __all__ = ["ObservationRepository"]

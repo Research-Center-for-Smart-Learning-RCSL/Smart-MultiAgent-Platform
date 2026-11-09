@@ -43,6 +43,45 @@ class ChatroomAgentRole(str, enum.Enum):
     OBSERVER = "observer"
 
 
+class ClassroomRole(str, enum.Enum):
+    """A binding's part in the classroom agent design ([R34.01]).
+
+    Independent of :class:`ChatroomAgentRole`, which decides output routing:
+    ``teacher`` and ``peer`` sit on normal bindings, ``analyst`` on an observer.
+    """
+
+    NONE = "none"
+    TEACHER = "teacher"
+    PEER = "peer"
+    ANALYST = "analyst"
+
+    def fits(self, role: ChatroomAgentRole) -> bool:
+        if self is ClassroomRole.NONE:
+            return True
+        if self is ClassroomRole.ANALYST:
+            return role is ChatroomAgentRole.OBSERVER
+        return role is ChatroomAgentRole.NORMAL
+
+
+class AlertViewSurface(str, enum.Enum):
+    PANEL = "panel"
+    DASHBOARD = "dashboard"
+
+
+class AlertActionKind(str, enum.Enum):
+    """The room creator's first response to an alert ([R34.02])."""
+
+    RELEASED = "released"
+    DELETED = "deleted"
+    ROOM_MESSAGE = "room_message"
+    ACTIVITY_STARTED = "activity_started"
+    ACTIVITY_ENDED = "activity_ended"
+
+
+#: [R34.02]: matches ck_agent_observations_alert_reason (0110).
+ALERT_REASON_MAX_CHARS = 200
+
+
 class ChatroomAgentBubbleColor(str, enum.Enum):
     CYAN = "cyan"
     TEAL = "teal"
@@ -136,6 +175,7 @@ class ChatroomAgent:
     # so a message's wake-up evaluation needs no second read of the room's rows.
     wakeup: BindingWakeupState | None = None
     bubble_color: ChatroomAgentBubbleColor | None = None
+    classroom_role: ClassroomRole = ClassroomRole.NONE
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +297,13 @@ class AgentObservation:
     released_by_user_id: uuid.UUID | None = None
     created_at: datetime | None = None
     deleted_at: datetime | None = None
+    # [R34.02]. Every "first" field is written once, by the earliest report.
+    is_alert: bool = False
+    alert_reason: str | None = None
+    first_viewed_at: datetime | None = None
+    first_viewed_via: AlertViewSurface | None = None
+    first_action_at: datetime | None = None
+    first_action_kind: AlertActionKind | None = None
 
 
 @dataclass(frozen=True, slots=True)

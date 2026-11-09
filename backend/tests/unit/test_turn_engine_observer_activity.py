@@ -30,7 +30,7 @@ from unittest.mock import AsyncMock
 import contexts.agents.application.runtime.turn_engine as te
 from contexts.agents.application.runtime.turn_engine import TurnEngine
 from contexts.conversation.application.room_guests import RoomGuests
-from contexts.conversation.domain.models import ChatroomAgentRole
+from contexts.conversation.domain.models import ChatroomAgentRole, ClassroomRole
 from contexts.skills.application.binding_service import BoundSet
 from tests.unit.turn_engine_fakes import stub_participant_reads
 
@@ -161,8 +161,8 @@ def _wire_normal_engine(monkeypatch, agent, *, activity_block: str | None):
         def __init__(self, db) -> None:
             pass
 
-        async def role_of(self, *, chatroom_id, agent_id):
-            return ChatroomAgentRole.NORMAL
+        async def roles_of(self, *, chatroom_id, agent_id):
+            return ChatroomAgentRole.NORMAL, ClassroomRole.NONE
 
     monkeypatch.setattr(te, "ChatroomAgentRepository", _BindingRepo)
 

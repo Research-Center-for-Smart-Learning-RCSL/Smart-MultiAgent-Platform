@@ -7,10 +7,11 @@ Data is received as typed dicts from the worker task, which queries through
 the proper facades. This module never imports from another context's
 infrastructure layer.
 
-Bundle layout (manifest ``schema_version`` 2,
-docs/tasks/2026-11-08-research-data-integrity/spec.md section 5):
-``submissions/<type_key>.csv`` per activity type, ``observations.json``,
-``transcripts.json`` and ``manifest.json``. People, groups, rooms and the
+Bundle layout (manifest ``schema_version`` 3,
+docs/tasks/2026-11-08-research-data-integrity/spec.md section 5, plus
+``alerts.csv`` from docs/tasks/2026-11-09-classroom-agent-collaboration):
+``submissions/<type_key>.csv`` per activity type, ``alerts.csv``,
+``observations.json``, ``transcripts.json`` and ``manifest.json``. People, groups, rooms and the
 workspace appear only as short codes, never as full ids.
 """
 
@@ -39,7 +40,7 @@ from shared_kernel.auth.clients import now
 from shared_kernel.storage import export_key, get_minio_client
 
 _EXPORT_PUT_TIMEOUT_SECONDS = 120
-SCHEMA_VERSION: Final = 2
+SCHEMA_VERSION: Final = 3
 # Excel reads a CSV as the system code page unless it starts with a BOM.
 _BOM: Final = "\ufeff"
 _LEADING_COLUMNS: Final = (
@@ -80,8 +81,26 @@ _MANIFEST_NOTES: Final = (
     "judge_model are filled only where judge_status is scored. fluency counts the answered "
     "fields; flexibility, originality and convergence are 0 to 4 from the judge model "
     "named in judge_model.",
+    "alerts.csv lists observations an analyst agent flagged as alerts, deleted ones "
+    "included. first_viewed_at is reported by the room creator's browser when the alert "
+    "was shown on an open, visible observer panel or dashboard, so a client that failed "
+    "to report leaves it empty; first_action_at is recorded by the server. Latencies are "
+    "seconds from raised_at.",
 )
 _UNKNOWN_VERSION: Final = "unknown"
+_ALERT_COLUMNS: Final = (
+    "room_code",
+    "agent_key",
+    "alert_reason",
+    "raised_at",
+    "first_viewed_at",
+    "first_viewed_via",
+    "view_latency_s",
+    "first_action_at",
+    "first_action_kind",
+    "action_latency_s",
+    "deleted",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +136,19 @@ class ObservationRow:
 
 
 @dataclass(frozen=True, slots=True)
+class AlertRow:
+    chatroom_id: uuid.UUID
+    agent_id: uuid.UUID
+    alert_reason: str | None
+    created_at: datetime | None
+    first_viewed_at: datetime | None = None
+    first_viewed_via: str | None = None
+    first_action_at: datetime | None = None
+    first_action_kind: str | None = None
+    deleted: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class MessageRow:
     chatroom_id: uuid.UUID
     sender_type: str
@@ -141,6 +173,7 @@ class ResearchExportBuilder:
         created_after: datetime | None = None,
         created_before: datetime | None = None,
         actor_ip: str | None = None,
+        alerts: list[AlertRow] | None = None,
     ) -> tuple[str, str]:
         files = self.build_files(
             workspace_id=workspace_id,
@@ -151,6 +184,7 @@ class ResearchExportBuilder:
             agent_key_map=agent_key_map,
             created_after=created_after,
             created_before=created_before,
+            alerts=alerts,
         )
         zip_bytes = self._package_zip(files)
 
@@ -204,16 +238,20 @@ class ResearchExportBuilder:
         agent_key_map: dict[uuid.UUID, str],
         created_after: datetime | None = None,
         created_before: datetime | None = None,
+        alerts: list[AlertRow] | None = None,
     ) -> dict[str, str]:
         """Every file of the bundle by its path inside the ZIP."""
+        alert_rows = alerts or []
         rooms = _room_codes(
             [r.chatroom_id for r in submissions]
             + [o.chatroom_id for o in observations]
             + [m.chatroom_id for m in messages]
+            + [a.chatroom_id for a in alert_rows]
         )
         csvs = self._build_submission_csvs(submissions, rooms)
         return {
             **{path: content for path, (_, content) in csvs.items()},
+            "alerts.csv": self._build_alerts_csv(alert_rows, agent_key_map, rooms),
             "observations.json": self._build_observations_json(observations, agent_key_map, rooms),
             "transcripts.json": self._build_transcripts_json(messages, agent_key_map, rooms),
             "manifest.json": self._build_manifest(
@@ -223,9 +261,35 @@ class ResearchExportBuilder:
                 created_before=created_before,
                 submission_count=len(submissions),
                 observation_count=len(observations),
+                alert_count=len(alert_rows),
                 submission_files=[{"type_key": key, "file": path} for path, (key, _) in csvs.items()],
             ),
         }
+
+    def _build_alerts_csv(
+        self, rows: list[AlertRow], agent_key_map: dict[uuid.UUID, str], rooms: dict[uuid.UUID, str]
+    ) -> str:
+        buf = io.StringIO()
+        buf.write(_BOM)
+        writer = csv.writer(buf)
+        writer.writerow(_ALERT_COLUMNS)
+        for row in sorted(rows, key=lambda r: (r.created_at is None, r.created_at)):
+            writer.writerow(
+                [
+                    rooms[row.chatroom_id],
+                    _cell(agent_key_map.get(row.agent_id, str(row.agent_id)[:8])),
+                    _cell(row.alert_reason),
+                    _iso(row.created_at),
+                    _iso(row.first_viewed_at),
+                    row.first_viewed_via,
+                    _seconds_between(row.created_at, row.first_viewed_at),
+                    _iso(row.first_action_at),
+                    row.first_action_kind,
+                    _seconds_between(row.created_at, row.first_action_at),
+                    row.deleted,
+                ]
+            )
+        return buf.getvalue()
 
     # -- Serialization ------------------------------------------------------ #
 
@@ -341,6 +405,7 @@ class ResearchExportBuilder:
         submission_count: int,
         observation_count: int,
         submission_files: list[dict[str, str]],
+        alert_count: int = 0,
     ) -> str:
         manifest = {
             "schema_version": SCHEMA_VERSION,
@@ -352,6 +417,7 @@ class ResearchExportBuilder:
             },
             "submission_count": submission_count,
             "observation_count": observation_count,
+            "alert_count": alert_count,
             "submission_files": submission_files,
             "notes": list(_MANIFEST_NOTES),
             "exported_at": now().isoformat(),
@@ -380,6 +446,16 @@ def _judge_cells(row: SubmissionRow) -> list[Any]:
         *(_score(scores.get(name)) for name in _SCORE_COLUMNS),
         _cell(scores.get("model")),
     ]
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _seconds_between(start: datetime | None, end: datetime | None) -> float | None:
+    if start is None or end is None:
+        return None
+    return round((end - start).total_seconds(), 3)
 
 
 def _score(value: Any) -> int | None:
@@ -454,6 +530,7 @@ def _cell(value: Any) -> Any:
 
 __all__ = [
     "SCHEMA_VERSION",
+    "AlertRow",
     "MessageRow",
     "ObservationRow",
     "ResearchExportBuilder",
