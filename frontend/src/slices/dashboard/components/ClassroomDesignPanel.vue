@@ -14,7 +14,7 @@ import type { DesignRunIn } from '@shared/api-client'
 import { agentKeys, agentsApi } from '@slices/agents'
 import { activityKeys, listActivityTypes } from '@slices/activities'
 import { useClassroomDesign } from '../composables/useClassroomDesign'
-import DesignProposalView from './DesignProposalView.vue'
+import DesignProposal from './DesignProposal.vue'
 import DesignRunForm from './DesignRunForm.vue'
 
 const props = defineProps<{
@@ -161,7 +161,7 @@ async function onApply(): Promise<void> {
           }) }}
         </SAlert>
 
-        <DesignProposalView
+        <DesignProposal
           v-if="run?.status === 'succeeded' && !showForm"
           :run="run"
           :teacher-name="agentName(run.teacher.agent_id)"
