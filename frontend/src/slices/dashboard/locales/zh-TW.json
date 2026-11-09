@@ -54,6 +54,25 @@
         "accepted": "已採納",
         "partly_accepted": "部分採納",
         "declined": "未採納"
+      },
+      "peerReview": {
+        "kind": "學生代理人回覆審核",
+        "draft": "草稿：",
+        "revised": "改為發出：",
+        "status": {
+          "pending": "等待審核",
+          "approved": "已核准",
+          "modified": "已修改",
+          "rejected": "已退回",
+          "expired": "未顯示"
+        },
+        "expire": {
+          "no_teacher": "聊天室沒有教師代理人",
+          "no_decision": "未及時做出決定",
+          "binding_changed": "代理人已離開或被替換",
+          "defer_limit": "延後次數過多",
+          "failed": "審核無法執行"
+        }
       }
     },
     "classSummary": "課堂摘要",

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { renderView } from '../../../../tests/utils'
 import DashboardCollaborationPanel from '../components/DashboardCollaborationPanel.vue'
-import type { CollaborationEntry } from '../types'
+import type { NoticeEntry, PeerReviewEntry } from '../types'
 
 const collaborationMock = vi.hoisted(() => vi.fn())
 
@@ -18,7 +18,28 @@ vi.mock('@shared/api-client', async (importOriginal) => {
   }
 })
 
-function entry(over: Partial<CollaborationEntry> = {}): CollaborationEntry {
+function review(over: Partial<PeerReviewEntry> = {}): PeerReviewEntry {
+  return {
+    kind: 'peer_review',
+    id: 'p1',
+    room_id: 'r1',
+    room_name: 'Room A',
+    from_agent_name: 'SA',
+    to_agent_name: 'TA',
+    draft: 'The answer is 12',
+    created_at: '2026-01-01T00:00:00Z',
+    status: 'pending',
+    attempt: 1,
+    reason: null,
+    revised_text: null,
+    expire_reason: null,
+    decided_at: null,
+    posted_message_id: null,
+    ...over,
+  }
+}
+
+function entry(over: Partial<NoticeEntry> = {}): NoticeEntry {
   return {
     kind: 'analyst_notice',
     id: 'n1',
@@ -78,5 +99,36 @@ describe('DashboardCollaborationPanel', () => {
     expect(rows[1]!.text()).toContain('dashboard.collaboration.status.pending')
     expect(rows[1]!.find('[data-testid="collaboration-reason"]').exists()).toBe(false)
     expect(rows[2]!.text()).toContain('dashboard.collaboration.status.unanswered')
+  })
+
+  it('shows each peer review with its draft, outcome and reason (AC-16)', async () => {
+    collaborationMock.mockResolvedValue({
+      entries: [
+        review({
+          status: 'modified',
+          reason: 'Too direct',
+          revised_text: 'What is 3 times 4?',
+          decided_at: '2026-01-01T00:00:30Z',
+        }),
+        review({ id: 'p2', status: 'expired', expire_reason: 'no_teacher' }),
+        entry(),
+      ],
+    })
+    const wrapper = await renderView(DashboardCollaborationPanel, { props: { workspaceId: 'w1' } })
+    await flushPromises()
+
+    const rows = wrapper.findAll('[data-testid="collaboration-entry"]')
+    expect(rows).toHaveLength(3)
+    expect(rows[0]!.text()).toContain('dashboard.collaboration.peerReview.kind')
+    expect(rows[0]!.text()).toContain('The answer is 12')
+    expect(rows[0]!.find('[data-testid="collaboration-revised"]').text()).toContain('What is 3 times 4?')
+    expect(rows[0]!.find('[data-testid="collaboration-reason"]').text()).toContain('Too direct')
+    expect(rows[0]!.text()).toContain('dashboard.collaboration.peerReview.status.modified')
+    expect(rows[0]!.text()).not.toContain('dashboard.collaboration.suggestion')
+    expect(rows[1]!.find('[data-testid="collaboration-expired"]').text()).toContain(
+      'dashboard.collaboration.peerReview.expire.no_teacher',
+    )
+    expect(rows[1]!.find('[data-testid="collaboration-revised"]').exists()).toBe(false)
+    expect(rows[2]!.text()).toContain('dashboard.collaboration.kind.content')
   })
 })

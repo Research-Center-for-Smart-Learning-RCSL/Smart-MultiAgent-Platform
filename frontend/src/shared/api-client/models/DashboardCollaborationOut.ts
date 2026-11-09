@@ -3,7 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { CollaborationEntryOut } from './CollaborationEntryOut';
+import type { PeerReviewEntryOut } from './PeerReviewEntryOut';
 export type DashboardCollaborationOut = {
-    entries: Array<CollaborationEntryOut>;
+    entries: Array<(CollaborationEntryOut | PeerReviewEntryOut)>;
 };
 

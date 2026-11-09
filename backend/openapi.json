@@ -6671,7 +6671,21 @@
         "properties": {
           "entries": {
             "items": {
-              "$ref": "#/components/schemas/CollaborationEntryOut"
+              "discriminator": {
+                "mapping": {
+                  "analyst_notice": "#/components/schemas/CollaborationEntryOut",
+                  "peer_review": "#/components/schemas/PeerReviewEntryOut"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CollaborationEntryOut"
+                },
+                {
+                  "$ref": "#/components/schemas/PeerReviewEntryOut"
+                }
+              ]
             },
             "title": "Entries",
             "type": "array"
@@ -10143,6 +10157,161 @@
           "email"
         ],
         "title": "PasswordResetRequestIn",
+        "type": "object"
+      },
+      "PeerReviewEntryOut": {
+        "properties": {
+          "attempt": {
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "draft": {
+            "title": "Draft",
+            "type": "string"
+          },
+          "expire_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_teacher",
+                  "no_decision",
+                  "binding_changed",
+                  "defer_limit",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expire Reason"
+          },
+          "from_agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Agent Name"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "peer_review",
+            "enum": [
+              "peer_review"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "posted_message_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posted Message Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "revised_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revised Text"
+          },
+          "room_id": {
+            "format": "uuid",
+            "title": "Room Id",
+            "type": "string"
+          },
+          "room_name": {
+            "title": "Room Name",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "approved",
+              "modified",
+              "rejected",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "to_agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Agent Name"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "room_id",
+          "room_name",
+          "from_agent_name",
+          "to_agent_name",
+          "draft",
+          "created_at",
+          "status",
+          "attempt",
+          "reason",
+          "revised_text",
+          "expire_reason",
+          "decided_at",
+          "posted_message_id"
+        ],
+        "title": "PeerReviewEntryOut",
         "type": "object"
       },
       "PlatformExampleOut": {
@@ -35683,7 +35852,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/dashboard/collaboration": {
       "get": {
-        "description": "The collaboration log of the rooms the caller created ([R34.03]).\n\nNotices are as confidential as observations ([R28.03]): only the room's\ncreator reads them, whoever else may open the room.",
+        "description": "The collaboration log of the rooms the caller created ([R34.03], [R34.06]).\n\nNotices and held drafts are as confidential as observations ([R28.03]): only\nthe room's creator reads them, whoever else may open the room. The two\nsources are each read newest first up to the requested page's end and merged,\nso a page is exact without a shared cursor.",
         "operationId": "dashboard_collaboration_api_v1_workspaces__workspace_id__dashboard_collaboration_get",
         "parameters": [
           {

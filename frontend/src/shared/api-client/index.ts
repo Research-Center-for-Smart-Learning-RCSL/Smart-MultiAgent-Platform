@@ -276,6 +276,7 @@ export type { OrgQuotasOut } from './models/OrgQuotasOut';
 export type { OrgSummaryOut } from './models/OrgSummaryOut';
 export type { PasswordResetIn } from './models/PasswordResetIn';
 export type { PasswordResetRequestIn } from './models/PasswordResetRequestIn';
+export type { PeerReviewEntryOut } from './models/PeerReviewEntryOut';
 export type { PlatformExampleOut } from './models/PlatformExampleOut';
 export type { PresenceOut } from './models/PresenceOut';
 export type { ProbeStatus } from './models/ProbeStatus';
