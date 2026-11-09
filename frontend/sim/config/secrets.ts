@@ -36,15 +36,20 @@ function hiddenPrompt(prompt: string): Promise<string> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true })
     const out = rl as unknown as { _writeToOutput?: (s: string) => void; output: NodeJS.WritableStream }
-    process.stdout.write(prompt)
     // readline has no public no-echo mode; replacing its private writer is the standard
     // workaround. If a Node release renames it, the prompt echoes and no test notices,
-    // so check by hand after a Node upgrade.
-    out._writeToOutput = () => {}
-    rl.question('', (answer) => {
+    // so check by hand after a Node upgrade. The prompt goes through question() and the
+    // writer mutes only after it: written separately, readline's line refresh erased it
+    // on Windows, and the run looked hung while it waited for the password.
+    let muted = false
+    out._writeToOutput = (s: string) => {
+      if (!muted) out.output.write(s)
+    }
+    rl.question(prompt, (answer) => {
       rl.close()
       process.stdout.write('\n')
       resolve(answer)
     })
+    muted = true
   })
 }
