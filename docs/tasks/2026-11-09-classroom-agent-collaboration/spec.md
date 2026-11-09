@@ -188,11 +188,11 @@ This change adds agent tools and LLM prompt surfaces, so Part F of `check-securi
 - [x] AC-6: The research export contains `alerts.csv` with the columns in §5, manifest `schema_version` 3, and no full UUID or display name.
 
 **M2**
-- [ ] AC-7: An analyst binding in a room with a teacher binding is offered `notify_teacher_agent`; without a teacher binding, or on a non-analyst binding, it is not.
-- [ ] AC-8: A notice creates a durable row, wakes the teacher with trigger `analyst_notice`, and the teacher's next turn contains the notice block; the notice never appears in the room transcript or on the room channel.
-- [ ] AC-9: The teacher's `respond_to_notice` records decision and reason once; a notice without a response for 15 minutes reads as `unanswered`.
-- [ ] AC-10: The fourth notice in a room within 10 minutes, and a second pending notice about the same message, are refused.
-- [ ] AC-11: The dashboard collaboration log lists notices with error, suggestion, decision and reason for rooms the caller created; the export contains `analyst_notices.csv`.
+- [x] AC-7: An analyst binding in a room with a teacher binding is offered `notify_teacher_agent`; without a teacher binding, or on a non-analyst binding, it is not.
+- [x] AC-8: A notice creates a durable row, wakes the teacher with trigger `analyst_notice`, and the teacher's next turn contains the notice block; the notice never appears in the room transcript or on the room channel.
+- [x] AC-9: The teacher's `respond_to_notice` records decision and reason once; a notice without a response for 15 minutes reads as `unanswered`.
+- [x] AC-10: The fourth notice in a room within 10 minutes, and a second pending notice about the same message, are refused.
+- [x] AC-11: The dashboard collaboration log lists notices with error, suggestion, decision and reason for rooms the caller created; the export contains `analyst_notices.csv`.
 
 **M3**
 - [ ] AC-12: A peer binding's turn in a room with a teacher binding emits no `agent.token` frames and no `message.created` before a decision, and is offered only read-only tools.
