@@ -6224,6 +6224,154 @@
         "title": "ClassStartPatchIn",
         "type": "object"
       },
+      "CollaborationEntryOut": {
+        "properties": {
+          "about_message_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "About Message Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "accepted",
+                  "partly_accepted",
+                  "declined"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "error_kind": {
+            "enum": [
+              "content",
+              "strategy"
+            ],
+            "title": "Error Kind",
+            "type": "string"
+          },
+          "from_agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Agent Name"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "analyst_notice",
+            "enum": [
+              "analyst_notice"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "responded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responded At"
+          },
+          "room_id": {
+            "format": "uuid",
+            "title": "Room Id",
+            "type": "string"
+          },
+          "room_name": {
+            "title": "Room Name",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "answered",
+              "unanswered"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "suggestion": {
+            "title": "Suggestion",
+            "type": "string"
+          },
+          "to_agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Agent Name"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "room_id",
+          "room_name",
+          "from_agent_name",
+          "to_agent_name",
+          "error_kind",
+          "error",
+          "suggestion",
+          "about_message_id",
+          "created_at",
+          "status",
+          "decision",
+          "reason",
+          "responded_at"
+        ],
+        "title": "CollaborationEntryOut",
+        "type": "object"
+      },
       "CommentIn": {
         "properties": {
           "content": {
@@ -6517,6 +6665,22 @@
           "alerts"
         ],
         "title": "DashboardAlertsOut",
+        "type": "object"
+      },
+      "DashboardCollaborationOut": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/CollaborationEntryOut"
+            },
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "title": "DashboardCollaborationOut",
         "type": "object"
       },
       "DashboardSummaryOut": {
@@ -35512,6 +35676,74 @@
           }
         },
         "summary": "Dashboard Alerts",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/dashboard/collaboration": {
+      "get": {
+        "description": "The collaboration log of the rooms the caller created ([R34.03]).\n\nNotices are as confidential as observations ([R28.03]): only the room's\ncreator reads them, whoever else may open the room.",
+        "operationId": "dashboard_collaboration_api_v1_workspaces__workspace_id__dashboard_collaboration_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 10000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardCollaborationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Dashboard Collaboration",
         "tags": [
           "dashboard"
         ]

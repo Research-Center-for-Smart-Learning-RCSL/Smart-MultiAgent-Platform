@@ -161,6 +161,25 @@ async def _resolve_workspace_rooms(
     return workspace.project_id, {room.id: room.name for room in rooms}
 
 
+async def _resolve_own_rooms(
+    *,
+    db: AsyncSession,
+    principal: Principal,
+    workspace_id: uuid.UUID,
+) -> dict[uuid.UUID, str]:
+    """The caller's own live rooms in the workspace, all of them for an admin
+    ([R34.03]): observation-grade content is readable only by the room creator."""
+    facade = ConversationFacade(db)
+    workspace = await facade.get_workspace(workspace_id)
+    if workspace is None or workspace.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    if await TenancyFacade(db).get_project(workspace.project_id) is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    await assert_project_role(db=db, principal=principal, project_id=workspace.project_id)
+    rooms = await facade.visible_rooms_in_workspace(principal=principal, workspace_id=workspace_id)
+    return {r.id: r.name for r in rooms if principal.is_admin or r.created_by_user_id == principal.user_id}
+
+
 class AlertOut(BaseModel):
     observation_id: uuid.UUID
     room_id: uuid.UUID
@@ -191,16 +210,10 @@ async def dashboard_alerts(
 
     An alert is an observation, readable only by its room's creator ([R28.03]), so
     a member who may open a room still sees none of its alerts here."""
-    facade = ConversationFacade(db)
-    workspace = await facade.get_workspace(workspace_id)
-    if workspace is None or workspace.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    if await TenancyFacade(db).get_project(workspace.project_id) is None:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    await assert_project_role(db=db, principal=principal, project_id=workspace.project_id)
-    rooms = await facade.visible_rooms_in_workspace(principal=principal, workspace_id=workspace_id)
-    own = {r.id: r.name for r in rooms if principal.is_admin or r.created_by_user_id == principal.user_id}
-    rows = await facade.list_alerts_for_rooms(chatroom_ids=list(own), limit=limit, offset=offset)
+    own = await _resolve_own_rooms(db=db, principal=principal, workspace_id=workspace_id)
+    rows = await ConversationFacade(db).list_alerts_for_rooms(
+        chatroom_ids=list(own), limit=limit, offset=offset
+    )
     names = await AgentsFacade(db).agent_names(list({r.agent_id for r in rows}))
     return DashboardAlertsOut(
         alerts=[
@@ -214,6 +227,72 @@ async def dashboard_alerts(
                 first_viewed_at=r.first_viewed_at,
                 first_action_at=r.first_action_at,
                 first_action_kind=r.first_action_kind.value if r.first_action_kind else None,
+            )
+            for r in rows
+        ]
+    )
+
+
+class CollaborationEntryOut(BaseModel):
+    kind: Literal["analyst_notice"]
+    id: uuid.UUID
+    room_id: uuid.UUID
+    room_name: str
+    from_agent_name: str | None
+    to_agent_name: str | None
+    error_kind: Literal["content", "strategy"]
+    error: str
+    suggestion: str
+    about_message_id: uuid.UUID | None
+    created_at: dt.datetime
+    status: Literal["pending", "answered", "unanswered"]
+    decision: Literal["accepted", "partly_accepted", "declined"] | None
+    reason: str | None
+    responded_at: dt.datetime | None
+
+
+class DashboardCollaborationOut(BaseModel):
+    entries: list[CollaborationEntryOut]
+
+
+@router.get("/{workspace_id}/dashboard/collaboration")
+async def dashboard_collaboration(
+    workspace_id: uuid.UUID = Path(...),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=10_000),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> DashboardCollaborationOut:
+    """The collaboration log of the rooms the caller created ([R34.03]).
+
+    Notices are as confidential as observations ([R28.03]): only the room's
+    creator reads them, whoever else may open the room."""
+    own = await _resolve_own_rooms(db=db, principal=principal, workspace_id=workspace_id)
+    rows = await ConversationFacade(db).list_notices_for_rooms(
+        chatroom_ids=list(own), limit=limit, offset=offset
+    )
+    names = await AgentsFacade(db).agent_names(
+        list({r.analyst_agent_id for r in rows} | {r.teacher_agent_id for r in rows})
+    )
+    now = dt.datetime.now(dt.UTC)
+    return DashboardCollaborationOut(
+        entries=[
+            CollaborationEntryOut(
+                kind="analyst_notice",
+                id=r.id,
+                room_id=r.chatroom_id,
+                room_name=own[r.chatroom_id],
+                from_agent_name=names.get(r.analyst_agent_id),
+                to_agent_name=names.get(r.teacher_agent_id),
+                error_kind=r.error_kind.value,
+                error=r.error,
+                suggestion=r.suggestion,
+                about_message_id=r.about_message_id,
+                created_at=r.created_at,
+                status=r.status_at(now).value,
+                decision=r.decision.value if r.decision else None,
+                reason=r.reason,
+                responded_at=r.responded_at,
             )
             for r in rows
         ]

@@ -932,6 +932,67 @@ async def test_a_class_start_wake_is_skipped_once_the_trigger_is_off(monkeypatch
     assert rec["run_turn"] == []
 
 
+@pytest.mark.asyncio
+async def test_an_analyst_notice_wake_runs_the_teacher_turn(monkeypatch) -> None:
+    """[R34.04]: an autonomous trigger with no trigger switch of its own."""
+    aid, rid = uuid.uuid4(), uuid.uuid4()
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(id=rid), agent=_agent(), turn_status="completed")
+
+    out = await orch_task.wakeup_agent({}, str(aid), str(rid), "analyst_notice", None, str(rec["binding_id"]))
+
+    assert out == "completed"
+    assert rec["run_turn"] == [(aid, rid, "analyst_notice", None)]
+
+
+@pytest.mark.asyncio
+async def test_an_analyst_notice_wake_is_subject_to_autostop(monkeypatch) -> None:
+    rec = _patch_task_env(
+        monkeypatch,
+        room=SimpleNamespace(id=uuid.uuid4()),
+        agent=_agent(autostop_rounds=3),
+        autostop_count=3,
+        turn_status="completed",
+    )
+
+    out = await orch_task.wakeup_agent(
+        {}, str(uuid.uuid4()), str(uuid.uuid4()), "analyst_notice", None, str(rec["binding_id"])
+    )
+
+    assert out == "skipped:autostop"
+    assert rec["run_turn"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_call_only_teacher_is_not_woken_by_a_notice(monkeypatch) -> None:
+    """D-5: the notice waits in the table for the teacher's next called turn."""
+    agent = _agent()
+    agent.wakeup_config["triggers"]["call_only"] = {"enabled": True}
+    rec = _patch_task_env(
+        monkeypatch, room=SimpleNamespace(id=uuid.uuid4()), agent=agent, turn_status="completed"
+    )
+
+    out = await orch_task.wakeup_agent(
+        {}, str(uuid.uuid4()), str(uuid.uuid4()), "analyst_notice", None, str(rec["binding_id"])
+    )
+
+    assert out == "skipped:trigger_off"
+    assert rec["run_turn"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_notice_wake_for_a_rebound_teacher_is_dropped(monkeypatch) -> None:
+    rec = _patch_task_env(
+        monkeypatch, room=SimpleNamespace(id=uuid.uuid4()), agent=_agent(), turn_status="completed"
+    )
+
+    out = await orch_task.wakeup_agent(
+        {}, str(uuid.uuid4()), str(uuid.uuid4()), "analyst_notice", None, str(uuid.uuid4())
+    )
+
+    assert out == "skipped:binding_gone"
+    assert rec["run_turn"] == []
+
+
 def _closed_room():
     return SimpleNamespace(id=uuid.uuid4(), class_closed_at=dt.datetime.now(dt.UTC))
 
@@ -947,6 +1008,7 @@ def _closed_room():
         "class_start",
         "activity_deadline",
         "all_submitted",
+        "analyst_notice",
     ],
 )
 async def test_a_closed_class_skips_every_automatic_trigger(monkeypatch, trigger) -> None:

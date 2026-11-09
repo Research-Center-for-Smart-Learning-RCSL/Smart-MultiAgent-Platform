@@ -10,7 +10,7 @@ infrastructure layer.
 Bundle layout (manifest ``schema_version`` 3,
 docs/tasks/2026-11-08-research-data-integrity/spec.md section 5, plus
 ``alerts.csv`` from docs/tasks/2026-11-09-classroom-agent-collaboration):
-``submissions/<type_key>.csv`` per activity type, ``alerts.csv``,
+``submissions/<type_key>.csv`` per activity type, ``alerts.csv``, ``analyst_notices.csv``,
 ``observations.json``, ``transcripts.json`` and ``manifest.json``. People, groups, rooms and the
 workspace appear only as short codes, never as full ids.
 """
@@ -86,6 +86,24 @@ _MANIFEST_NOTES: Final = (
     "was shown on an open, visible observer panel or dashboard, so a client that failed "
     "to report leaves it empty; first_action_at is recorded by the server. Latencies are "
     "seconds from raised_at.",
+    "analyst_notices.csv lists the private notices an analyst agent sent the room's teacher "
+    "agent and the teacher agent's answer. status is answered once a decision exists, "
+    "unanswered when none came within 15 minutes, and pending otherwise, as of exported_at. "
+    "response_latency_s is seconds from raised_at.",
+)
+_NOTICE_COLUMNS: Final = (
+    "room_code",
+    "analyst_agent_key",
+    "teacher_agent_key",
+    "error_kind",
+    "error",
+    "suggestion",
+    "raised_at",
+    "status",
+    "decision",
+    "reason",
+    "responded_at",
+    "response_latency_s",
 )
 _UNKNOWN_VERSION: Final = "unknown"
 _ALERT_COLUMNS: Final = (
@@ -149,6 +167,21 @@ class AlertRow:
 
 
 @dataclass(frozen=True, slots=True)
+class NoticeRow:
+    chatroom_id: uuid.UUID
+    analyst_agent_id: uuid.UUID
+    teacher_agent_id: uuid.UUID
+    error_kind: str
+    error: str
+    suggestion: str
+    created_at: datetime
+    status: str
+    decision: str | None = None
+    reason: str | None = None
+    responded_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MessageRow:
     chatroom_id: uuid.UUID
     sender_type: str
@@ -174,6 +207,7 @@ class ResearchExportBuilder:
         created_before: datetime | None = None,
         actor_ip: str | None = None,
         alerts: list[AlertRow] | None = None,
+        notices: list[NoticeRow] | None = None,
     ) -> tuple[str, str]:
         files = self.build_files(
             workspace_id=workspace_id,
@@ -185,6 +219,7 @@ class ResearchExportBuilder:
             created_after=created_after,
             created_before=created_before,
             alerts=alerts,
+            notices=notices,
         )
         zip_bytes = self._package_zip(files)
 
@@ -239,19 +274,23 @@ class ResearchExportBuilder:
         created_after: datetime | None = None,
         created_before: datetime | None = None,
         alerts: list[AlertRow] | None = None,
+        notices: list[NoticeRow] | None = None,
     ) -> dict[str, str]:
         """Every file of the bundle by its path inside the ZIP."""
         alert_rows = alerts or []
+        notice_rows = notices or []
         rooms = _room_codes(
             [r.chatroom_id for r in submissions]
             + [o.chatroom_id for o in observations]
             + [m.chatroom_id for m in messages]
             + [a.chatroom_id for a in alert_rows]
+            + [n.chatroom_id for n in notice_rows]
         )
         csvs = self._build_submission_csvs(submissions, rooms)
         return {
             **{path: content for path, (_, content) in csvs.items()},
             "alerts.csv": self._build_alerts_csv(alert_rows, agent_key_map, rooms),
+            "analyst_notices.csv": self._build_notices_csv(notice_rows, agent_key_map, rooms),
             "observations.json": self._build_observations_json(observations, agent_key_map, rooms),
             "transcripts.json": self._build_transcripts_json(messages, agent_key_map, rooms),
             "manifest.json": self._build_manifest(
@@ -262,6 +301,7 @@ class ResearchExportBuilder:
                 submission_count=len(submissions),
                 observation_count=len(observations),
                 alert_count=len(alert_rows),
+                notice_count=len(notice_rows),
                 submission_files=[{"type_key": key, "file": path} for path, (key, _) in csvs.items()],
             ),
         }
@@ -287,6 +327,35 @@ class ResearchExportBuilder:
                     row.first_action_kind,
                     _seconds_between(row.created_at, row.first_action_at),
                     row.deleted,
+                ]
+            )
+        return buf.getvalue()
+
+    def _build_notices_csv(
+        self, rows: list[NoticeRow], agent_key_map: dict[uuid.UUID, str], rooms: dict[uuid.UUID, str]
+    ) -> str:
+        def key(agent_id: uuid.UUID) -> Any:
+            return _cell(agent_key_map.get(agent_id, str(agent_id)[:8]))
+
+        buf = io.StringIO()
+        buf.write(_BOM)
+        writer = csv.writer(buf)
+        writer.writerow(_NOTICE_COLUMNS)
+        for row in sorted(rows, key=lambda r: r.created_at):
+            writer.writerow(
+                [
+                    rooms[row.chatroom_id],
+                    key(row.analyst_agent_id),
+                    key(row.teacher_agent_id),
+                    row.error_kind,
+                    _cell(row.error),
+                    _cell(row.suggestion),
+                    _iso(row.created_at),
+                    row.status,
+                    row.decision,
+                    _cell(row.reason),
+                    _iso(row.responded_at),
+                    _seconds_between(row.created_at, row.responded_at),
                 ]
             )
         return buf.getvalue()
@@ -406,6 +475,7 @@ class ResearchExportBuilder:
         observation_count: int,
         submission_files: list[dict[str, str]],
         alert_count: int = 0,
+        notice_count: int = 0,
     ) -> str:
         manifest = {
             "schema_version": SCHEMA_VERSION,
@@ -418,6 +488,7 @@ class ResearchExportBuilder:
             "submission_count": submission_count,
             "observation_count": observation_count,
             "alert_count": alert_count,
+            "notice_count": notice_count,
             "submission_files": submission_files,
             "notes": list(_MANIFEST_NOTES),
             "exported_at": now().isoformat(),
@@ -532,6 +603,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "AlertRow",
     "MessageRow",
+    "NoticeRow",
     "ObservationRow",
     "ResearchExportBuilder",
     "SubmissionRow",
