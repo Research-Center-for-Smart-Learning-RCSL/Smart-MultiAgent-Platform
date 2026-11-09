@@ -11,7 +11,6 @@ until 2026-11-01 is frozen in `archive/board-history-to-2026-11.md`.
 | Dossier | Type | Status | Title |
 |---|---|---|---|
 | [`2026-07-19-large-artifacts-silently-dropped`](2026-07-19-large-artifacts-silently-dropped/spec.md) | bugfix | in-progress | A `code_exec` artifact over 8 MiB is silently destroyed |
-| [`2026-11-08-research-data-integrity`](2026-11-08-research-data-integrity/spec.md) | feature | in-progress | Research data integrity before formal data collection |
 
 ## Ready now
 

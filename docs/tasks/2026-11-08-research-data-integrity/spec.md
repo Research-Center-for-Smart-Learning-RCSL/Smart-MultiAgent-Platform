@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-11-08
 requirements: [R33.10, R33.02, R30.01, R30.05, R30.23, R30.25, R30.26, R30.27]
 depends_on: []
@@ -576,7 +576,7 @@ That is stated in the release note.
 
 - [x] AC-19: Backend lint, typecheck and tests (db tier included) pass in CI for each
   milestone, as do frontend lint, typecheck, tests and build.
-- [ ] AC-20: On staging, a real export of a classroom-simulator room with a scoring-enabled
+- [x] AC-20: On staging, a real export of a classroom-simulator room with a scoring-enabled
   type opens in Excel with readable Chinese, joins guest transcripts to submissions by
   code, and shows real judge scores (manual check recorded in the Deviation Log).
 
@@ -802,6 +802,20 @@ Appended by /build.
   and the owner's key pays for it; a truncated answer would be scored as if it were whole.
   Lookalike angle brackets and the Unicode line separators are escaped with `<` and `>`,
   and a reply over 16,000 characters is rejected before parsing. `PROMPT_VERSION` is 2.
+- **D-27 (AC-20, staging check, 2026-11-09).** Staging was updated to `59ab0930` (migrations
+  0108 and 0109 applied). The course's `object-reinterpretation` type is platform-scoped and so
+  cannot carry scoring (D-23); the check used a project copy, `object-reinterpretation-scored`,
+  with the same schema and validator, judged by the project's analyst agent (`gpt-6-luna`). The
+  simulator scenario `frontend/sim/scenarios/judge-ac20.ts` had two students and a guest submit,
+  one student twice. All four submissions were judged `scored`, each with one `activity_judge`
+  usage row (HTTP 200, at most 6 s). The dashboard watchlist showed means for all three, the
+  student who resubmitted at the resubmission's scores rather than an average. In the research
+  export, `submissions/object-reinterpretation-scored.csv` carries a UTF-8 BOM and opened in
+  Excel with readable Chinese; every row has `judge_status` scored, four integer scores and
+  `judge_model`; the guest row's `subject_code` matches the guest's message in
+  `transcripts.json`. The run also found that the simulator's hidden password prompt was erased
+  by readline's line refresh on Windows, so a run looked hung; fixed in `sim/config/secrets.ts`.
+
 ## 16. Follow-ups
 
 - **FU-1.** A PENDING (MCP or webhook) validation can complete after its activation
@@ -868,3 +882,7 @@ Appended by /build.
   expose one `AgentsFacade` helper. `creativity_for_rooms` assembles rows through a
   `dict[str, Any]` scratch structure that two typed dicts would replace, and
   `test_dashboard_creativity.py` carries an unexplained `type: ignore[arg-type]`.
+- **FU-18 (AC-20 staging check).** Creativity scoring cannot be turned on for a course
+  (platform-scoped) type, so a researcher has to copy it into the project first, which splits
+  the export into two files for one activity. Decide whether a project may attach scoring to a
+  platform type it uses, stored per project rather than on the shared row.
