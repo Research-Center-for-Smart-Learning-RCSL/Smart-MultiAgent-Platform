@@ -202,10 +202,10 @@ This change adds agent tools and LLM prompt surfaces, so Part F of `check-securi
 - [x] AC-16: Peer reviews appear in the dashboard collaboration log and in `peer_reviews.csv`.
 
 **M4**
-- [ ] AC-17: Every change of an agent's `system_prompt` records a revision with its source, and restoring a revision sets the prompt back and records a `restore` revision.
-- [ ] AC-18: A project owner can submit the design form; the run calls the design agent on its key group with no tools and stores both proposed prompts, or fails with a reason on an unparsable or oversized reply.
-- [ ] AC-19: The panel shows current and proposed prompts side by side; apply writes both agents in one transaction with `design` revisions; if either agent changed since the run was shown, nothing is written and the teacher sees a conflict; a run cannot be applied twice.
-- [ ] AC-20: A non-owner, or a run naming an agent from another project, is refused.
+- [x] AC-17: Every change of an agent's `system_prompt` records a revision with its source, and restoring a revision sets the prompt back and records a `restore` revision.
+- [x] AC-18: A project owner can submit the design form; the run calls the design agent on its key group with no tools and stores both proposed prompts, or fails with a reason on an unparsable or oversized reply.
+- [x] AC-19: The panel shows current and proposed prompts side by side; apply writes both agents in one transaction with `design` revisions; if either agent changed since the run was shown, nothing is written and the teacher sees a conflict; a run cannot be applied twice.
+- [x] AC-20: A non-owner, or a run naming an agent from another project, is refused.
 
 **End to end**
 - [ ] AC-21: On staging, a simulator scenario in a room with teacher, peer and analyst bindings produces at least one alert with view and action times, one notice with a teacher response, and peer reviews with at least two different decisions, and the export's three new CSVs open in Excel with readable Chinese.
