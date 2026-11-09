@@ -13,6 +13,7 @@ import type { AgentToolTestOut } from '../models/AgentToolTestOut';
 import type { ExamplePackInstallIn } from '../models/ExamplePackInstallIn';
 import type { ExamplePackInstallReportOut } from '../models/ExamplePackInstallReportOut';
 import type { ExamplePackOut } from '../models/ExamplePackOut';
+import type { PromptRevisionOut } from '../models/PromptRevisionOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -89,6 +90,65 @@ export class AgentsService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List Prompt Revisions
+     * Newest first ([R34.07]). Empty until the prompt first changes.
+     * @returns PromptRevisionOut Successful Response
+     * @throws ApiError
+     */
+    public static listPromptRevisionsApiAgentsAgentIdPromptRevisionsGet({
+        agentId,
+        limit = 50,
+        offset,
+    }: {
+        agentId: string,
+        limit?: number,
+        offset?: number,
+    }): CancelablePromise<Array<PromptRevisionOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agents/{agent_id}/prompt-revisions',
+            path: {
+                'agent_id': agentId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Restore Prompt Revision
+     * @returns AgentOut Successful Response
+     * @throws ApiError
+     */
+    public static restorePromptRevisionApiAgentsAgentIdPromptRevisionsRevisionIdRestorePost({
+        agentId,
+        revisionId,
+        ifMatch,
+    }: {
+        agentId: string,
+        revisionId: string,
+        ifMatch: string,
+    }): CancelablePromise<AgentOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/agents/{agent_id}/prompt-revisions/{revision_id}/restore',
+            path: {
+                'agent_id': agentId,
+                'revision_id': revisionId,
+            },
+            headers: {
+                'If-Match': ifMatch,
+            },
             errors: {
                 422: `Request Validation Problem`,
             },
