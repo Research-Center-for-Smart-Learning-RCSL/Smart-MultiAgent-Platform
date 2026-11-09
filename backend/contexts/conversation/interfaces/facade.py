@@ -1058,13 +1058,18 @@ class ConversationFacade:
         )
 
     async def record_alert_views(
-        self, *, chatroom_id: uuid.UUID, observation_ids: Sequence[uuid.UUID], via: AlertViewSurface
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        observation_ids: Sequence[uuid.UUID],
+        via: AlertViewSurface,
     ) -> int:
-        """[R34.02]. The caller owns commit and the creator check."""
+        """[R34.02]. A no-op unless the actor created the room. The caller owns commit."""
         from contexts.conversation.application.observation_service import ObservationService
 
         return await ObservationService(self._db).record_views(
-            chatroom_id=chatroom_id, observation_ids=observation_ids, via=via
+            chatroom_id=chatroom_id, actor_user_id=actor_user_id, observation_ids=observation_ids, via=via
         )
 
     async def record_alert_room_action(

@@ -298,15 +298,16 @@ class TestViewedRoute:
 
         monkeypatch.setattr(mod, "_require_creator", _require)
         monkeypatch.setattr(mod, "ObservationService", _Service)
-        room, obs = uuid.uuid4(), uuid.uuid4()
+        room, obs, caller = uuid.uuid4(), uuid.uuid4(), _principal()
         await mod.record_alert_views(
             body=mod.AlertViewsIn(observation_ids=[obs], via="dashboard"),
             chatroom_id=room,
-            principal=_principal(),
+            principal=caller,
             db=SimpleNamespace(),
         )
         assert gated == [room]
         assert recorded[0]["via"] is AlertViewSurface.DASHBOARD
+        assert recorded[0]["actor_user_id"] == caller.user_id
 
     def test_the_batch_is_bounded(self) -> None:
         import app.api.v1.observations as mod

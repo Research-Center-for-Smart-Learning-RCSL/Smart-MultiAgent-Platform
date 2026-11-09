@@ -189,10 +189,14 @@ async def record_alert_views(
     """The creator's client saw these alerts on an open, visible surface ([R34.02]).
 
     Ids that are not alerts of this room, or were already seen, are ignored, so
-    the call is idempotent and reveals nothing about ids outside the room."""
+    the call is idempotent and reveals nothing about ids outside the room. An
+    admin passes the gate but is not the teacher, so their view records nothing."""
     await _require_creator(db, principal=principal, chatroom_id=chatroom_id)
     await ObservationService(db).record_views(
-        chatroom_id=chatroom_id, observation_ids=body.observation_ids, via=AlertViewSurface(body.via)
+        chatroom_id=chatroom_id,
+        actor_user_id=principal.user_id,
+        observation_ids=body.observation_ids,
+        via=AlertViewSurface(body.via),
     )
 
 

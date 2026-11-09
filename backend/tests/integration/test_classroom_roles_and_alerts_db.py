@@ -199,7 +199,10 @@ class TestAlertReactionTimes:
             service = ObservationService(session)
             assert (
                 await service.record_views(
-                    chatroom_id=room.chatroom_id, observation_ids=[alert, routine], via=AlertViewSurface.PANEL
+                    chatroom_id=room.chatroom_id,
+                    actor_user_id=room.creator_id,
+                    observation_ids=[alert, routine],
+                    via=AlertViewSurface.PANEL,
                 )
                 == 1
             )
@@ -208,7 +211,10 @@ class TestAlertReactionTimes:
         await asyncio.sleep(0.05)
         async with sessionmaker() as session:
             again = await ObservationService(session).record_views(
-                chatroom_id=room.chatroom_id, observation_ids=[alert], via=AlertViewSurface.DASHBOARD
+                chatroom_id=room.chatroom_id,
+                actor_user_id=room.creator_id,
+                observation_ids=[alert],
+                via=AlertViewSurface.DASHBOARD,
             )
             await session.commit()
             row = await _obs_row(session, alert)
@@ -223,7 +229,26 @@ class TestAlertReactionTimes:
         async with sessionmaker() as session:
             alert = await _alert(session, room)
             marked = await ObservationService(session).record_views(
-                chatroom_id=uuid.uuid4(), observation_ids=[alert], via=AlertViewSurface.PANEL
+                chatroom_id=uuid.uuid4(),
+                actor_user_id=room.creator_id,
+                observation_ids=[alert],
+                via=AlertViewSurface.PANEL,
+            )
+            await session.commit()
+            assert marked == 0
+            assert (await _obs_row(session, alert)).first_viewed_at is None
+
+    async def test_a_view_by_someone_other_than_the_creator_records_nothing(
+        self, sessionmaker: async_sessionmaker[AsyncSession], room: Room
+    ) -> None:
+        # An admin passes the route's read gate; their view is not the teacher's.
+        async with sessionmaker() as session:
+            alert = await _alert(session, room)
+            marked = await ObservationService(session).record_views(
+                chatroom_id=room.chatroom_id,
+                actor_user_id=uuid.uuid4(),
+                observation_ids=[alert],
+                via=AlertViewSurface.DASHBOARD,
             )
             await session.commit()
             assert marked == 0

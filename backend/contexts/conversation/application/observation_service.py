@@ -269,10 +269,18 @@ class ObservationService:
         self,
         *,
         chatroom_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
         observation_ids: Sequence[uuid.UUID],
         via: AlertViewSurface,
     ) -> int:
-        """The caller has established that the actor is this room's creator."""
+        """Mark first views if ``actor_user_id`` created the room.
+
+        The read gate also admits an admin, but RQ2 measures the teacher's
+        reaction, so another reader's view must not stand in for it. Same rule
+        as ``record_room_action``."""
+        room = await self._rooms.get(chatroom_id)
+        if room is None or room.created_by_user_id != actor_user_id:
+            return 0
         return await self._observations.mark_viewed(
             chatroom_id=chatroom_id, observation_ids=list(dict.fromkeys(observation_ids)), via=via
         )
