@@ -250,6 +250,55 @@ analyst_notices = sa.Table(
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 
+# [R34.06]; 0112. Constraints live in the migration.
+peer_reply_reviews = sa.Table(
+    "peer_reply_reviews",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "chatroom_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("chatrooms.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "peer_agent_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column("peer_binding_id", pg.UUID(as_uuid=True), nullable=False),
+    sa.Column(
+        "teacher_agent_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
+    sa.Column("teacher_binding_id", pg.UUID(as_uuid=True), nullable=True),
+    sa.Column("draft", sa.Text, nullable=False),
+    sa.Column(
+        "trigger_message_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'pending'")),
+    sa.Column("attempt", sa.Integer, nullable=False, server_default=sa.text("1")),
+    sa.Column("due_at", sa.TIMESTAMP(timezone=True), nullable=False),
+    sa.Column("reason", sa.Text, nullable=True),
+    sa.Column("revised_text", sa.Text, nullable=True),
+    sa.Column("expire_reason", sa.Text, nullable=True),
+    sa.Column("decided_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column(
+        "posted_message_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("peer_told_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+)
+
 chatroom_guests = sa.Table(
     "chatroom_guests",
     metadata,
@@ -442,5 +491,6 @@ __all__ = [
     "message_attachments",
     "message_edits",
     "messages",
+    "peer_reply_reviews",
     "workspaces",
 ]

@@ -115,6 +115,47 @@ NOTICE_RATE_LIMIT = 3
 NOTICE_RATE_WINDOW = timedelta(minutes=10)
 
 
+class PeerReviewStatus(str, enum.Enum):
+    """A held peer reply's state ([R34.06]). ``pending`` past ``due_at`` reads as
+    ``expired``: see :meth:`PeerReplyReview.status_at`."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    MODIFIED = "modified"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+
+
+class PeerReviewDecision(str, enum.Enum):
+    """What the teacher agent's ``review_peer_reply`` call may decide."""
+
+    APPROVE = "approve"
+    MODIFY = "modify"
+    REJECT = "reject"
+    DEFER = "defer"
+
+
+class PeerReviewExpiry(str, enum.Enum):
+    """Why a review expired unposted. Recorded for the research export."""
+
+    NO_TEACHER = "no_teacher"
+    NO_DECISION = "no_decision"
+    BINDING_CHANGED = "binding_changed"
+    DEFER_LIMIT = "defer_limit"
+    FAILED = "failed"
+
+
+#: [R34.06]: the review turn's deadline, and the slack before a pending review
+#: whose job died reads as expired.
+PEER_REVIEW_DEADLINE = timedelta(seconds=60)
+PEER_REVIEW_GRACE = timedelta(seconds=90)
+#: Attempt 1 is the first review; each defer adds one, and deferring attempt 3 expires.
+PEER_REVIEW_MAX_ATTEMPTS = 3
+PEER_REVIEW_DEFER_MINUTES = (1, 10)
+PEER_REVIEW_REASON_MAX_CHARS = 500
+PEER_REVIEW_REVISED_MAX_CHARS = 20_000
+
+
 class ChatroomAgentBubbleColor(str, enum.Enum):
     CYAN = "cyan"
     TEAL = "teal"
@@ -364,6 +405,34 @@ class AnalystNotice:
         if now - self.created_at >= NOTICE_ANSWER_WINDOW:
             return NoticeStatus.UNANSWERED
         return NoticeStatus.PENDING
+
+
+@dataclass(frozen=True, slots=True)
+class PeerReplyReview:
+    """A peer agent's reply held for the teacher agent's decision ([R34.06])."""
+
+    id: uuid.UUID
+    chatroom_id: uuid.UUID
+    peer_agent_id: uuid.UUID
+    peer_binding_id: uuid.UUID
+    draft: str
+    status: PeerReviewStatus
+    attempt: int
+    due_at: datetime
+    created_at: datetime
+    teacher_agent_id: uuid.UUID | None = None
+    teacher_binding_id: uuid.UUID | None = None
+    trigger_message_id: uuid.UUID | None = None
+    reason: str | None = None
+    revised_text: str | None = None
+    expire_reason: PeerReviewExpiry | None = None
+    decided_at: datetime | None = None
+    posted_message_id: uuid.UUID | None = None
+
+    def status_at(self, now: datetime) -> PeerReviewStatus:
+        if self.status is PeerReviewStatus.PENDING and now >= self.due_at:
+            return PeerReviewStatus.EXPIRED
+        return self.status
 
 
 @dataclass(frozen=True, slots=True)

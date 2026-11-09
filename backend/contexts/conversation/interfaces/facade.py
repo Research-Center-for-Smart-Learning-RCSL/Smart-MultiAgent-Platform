@@ -26,6 +26,14 @@ from contexts.conversation.application.guest_session_service import (
     GuestSessionResult,
 )
 from contexts.conversation.application.notice_service import NoticeCreated, NoticeRefused
+from contexts.conversation.application.peer_review_service import (
+    ReviewClosed,
+    ReviewDeferred,
+    ReviewOutcome,
+    ReviewPosted,
+    ReviewRefusal,
+    ReviewRefused,
+)
 from contexts.conversation.application.room_guests import RoomGuests, load_room_guests, project_id_for_room
 from contexts.conversation.application.room_presence import RoomPresenceSnapshot
 from contexts.conversation.domain.models import (
@@ -51,6 +59,9 @@ from contexts.conversation.domain.models import (
     MessageAttachment,
     NoticeDecision,
     NoticeErrorKind,
+    PeerReplyReview,
+    PeerReviewDecision,
+    PeerReviewExpiry,
     SenderType,
     Workspace,
 )
@@ -1139,6 +1150,95 @@ class ConversationFacade:
             offset=offset,
         )
 
+    async def hold_peer_reply(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        peer_agent_id: uuid.UUID,
+        draft: str,
+        trigger_message_id: uuid.UUID | None,
+    ) -> PeerReplyReview | None:
+        """[R34.06]. Written in the caller's transaction; the caller owns commit
+        and the review job after it."""
+        from contexts.conversation.application.peer_review_service import PeerReviewService
+
+        return await PeerReviewService(self._db).hold(
+            chatroom_id=chatroom_id,
+            peer_agent_id=peer_agent_id,
+            draft=draft,
+            trigger_message_id=trigger_message_id,
+        )
+
+    async def open_peer_review(self, review_id: uuid.UUID) -> PeerReplyReview | None:
+        """The review a teacher turn may decide now; expires it otherwise."""
+        from contexts.conversation.application.peer_review_service import PeerReviewService
+
+        return await PeerReviewService(self._db).open_for_review(review_id)
+
+    async def decide_peer_review(
+        self,
+        *,
+        review_id: uuid.UUID,
+        teacher_agent_id: uuid.UUID,
+        decision: PeerReviewDecision,
+        reason: str,
+        revised_text: str | None = None,
+        defer_minutes: int | None = None,
+    ) -> ReviewOutcome:
+        """[R34.06]. The caller owns commit and, after it, the posted message's
+        broadcasts or the deferred re-review."""
+        from contexts.conversation.application.peer_review_service import PeerReviewService
+
+        return await PeerReviewService(self._db).decide(
+            review_id=review_id,
+            teacher_agent_id=teacher_agent_id,
+            decision=decision,
+            reason=reason,
+            revised_text=revised_text,
+            defer_minutes=defer_minutes,
+        )
+
+    async def expire_peer_review(
+        self, review_id: uuid.UUID, reason: PeerReviewExpiry
+    ) -> PeerReplyReview | None:
+        from contexts.conversation.application.peer_review_service import PeerReviewService
+
+        return await PeerReviewService(self._db).expire(review_id, reason)
+
+    async def untold_peer_rejections(
+        self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID
+    ) -> Sequence[PeerReplyReview]:
+        from contexts.conversation.application.peer_review_service import PeerReviewService
+
+        return await PeerReviewService(self._db).untold_rejections(chatroom_id=chatroom_id, agent_id=agent_id)
+
+    async def mark_peer_rejections_told(self, review_ids: Sequence[uuid.UUID]) -> None:
+        """In the caller's transaction, so a turn that rolls back tells them again."""
+        from contexts.conversation.application.peer_review_service import PeerReviewService
+
+        await PeerReviewService(self._db).mark_told(review_ids)
+
+    async def list_peer_reviews_for_rooms(
+        self,
+        *,
+        chatroom_ids: Sequence[uuid.UUID],
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> Sequence[PeerReplyReview]:
+        """Reviews of a set of rooms, newest first ([R34.03]). The caller decides
+        which rooms the reader may see."""
+        from contexts.conversation.application.peer_review_service import PeerReviewService
+
+        return await PeerReviewService(self._db).list_for_rooms(
+            chatroom_ids=chatroom_ids,
+            created_after=created_after,
+            created_before=created_before,
+            limit=limit,
+            offset=offset,
+        )
+
     async def record_alert_views(
         self,
         *,
@@ -1418,6 +1518,15 @@ __all__ = [
     "MessageAttachment",
     "NoticeCreated",
     "NoticeRefused",
+    "PeerReplyReview",
+    "PeerReviewDecision",
+    "PeerReviewExpiry",
+    "ReviewClosed",
+    "ReviewDeferred",
+    "ReviewOutcome",
+    "ReviewPosted",
+    "ReviewRefusal",
+    "ReviewRefused",
     "RoomGuests",
     "RoomPresenceSnapshot",
     "SenderType",

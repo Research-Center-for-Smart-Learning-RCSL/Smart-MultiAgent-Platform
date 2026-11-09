@@ -591,7 +591,13 @@ class TestTurns:
             trigger_message_id=None,
         )
 
-        assert flags == {"is_analyst": False, "is_teacher": True, "wake_sink": []}
+        assert flags == {
+            "is_analyst": False,
+            "is_teacher": True,
+            "wake_sink": [],
+            "is_peer": False,
+            "told_sink": [],
+        }
         assert secret in seen["system_text"]
         assert ct.RESPOND_TOOL_NAME in seen["extra"]
         assert all(secret not in str(kw) for kw in sent)
