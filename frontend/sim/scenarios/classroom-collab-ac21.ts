@@ -11,12 +11,14 @@ import { onClassClose, onRoundStart } from '../scenario/rounds.ts'
 //   deliberate wrong one, so TA reviews at least one wrong draft beside correct ones, which is
 //   where different decisions (approve, modify, reject) come from.
 // - Alerts and notices: AA wakes every 20 human messages and after 10 minutes of silence. The
-//   script sends about 48 student messages (39 gave AA a single wake on the first run), and round 3 opens with a stall that drifts off
-//   topic, the "group that is stuck" case the alert argument describes. A wrong SA answer that
+//   script sends about 63 student messages (39 gave AA a single wake on the first run). Round 3
+//   opens with a stall that drifts off topic; on the second run TA pulled it back before AA
+//   looked, so AA rightly kept it a note. Round 5's stall and a student giving up last past TA's
+//   prompts, the persisting case the AA prompt's alert section names. A wrong SA answer that
 //   reaches the room is the "agent said something wrong" case for both an alert and a notice.
 // - Reaction times: the operator keeps the teacher dashboard open in their own browser while the
-//   run plays (the alert list reports what it shows as viewed), and F's message at the end of
-//   round 3 is the creator's first action after the alerts raised before it.
+//   run plays (the alert list reports what it shows as viewed), and F's messages at the start of
+//   round 4 and after round 5's stall are the creator's first action on the alerts before each.
 //
 // Preconditions: the CRAT room pack agents exist in the project with the names below, the
 // deployed commit includes PR #327, and the operator has the dashboard open on this project.
@@ -96,6 +98,30 @@ const ROUNDS: Array<{ clues: [string, string, string]; talk: Array<[string, stri
     ask: ['P2', `${SA} 你也覺得是風嗎？`],
     answer: { target_character: '風', word_1: '颱風', word_2: '威風', word_3: '兜風', reasoning: '颱雨、兜力不是詞，風三個都通' },
   },
+  {
+    // The pack's fifth item. AA's third message wake lands on this round's 12th line, so the
+    // stall and the student giving up are still going on when it looks, whatever TA says.
+    clues: ['眼', '時', '觀'],
+    talk: [
+      ['P1', '眼睛、時間……觀什麼？'],
+      ['P2', '想不到，這題好難'],
+      ['P3', '我真的不想做了，好累'],
+      ['P1', '我也是，乾脆隨便猜一個交出去'],
+      ['P2', '等一下要不要去福利社'],
+      ['P3', '好啊，我想買飲料'],
+      ['P1', '老師叫我們回來想，可是真的想不到'],
+      ['P2', '眼睛、時間、觀念，三個都不一樣，沒救了'],
+      ['P3', '我放棄了，你們想就好'],
+      ['P1', '不要放棄啦'],
+      ['P2', '福利社今天有新的麵包耶'],
+      ['P3', '隨便啦'],
+      ['P1', '等等，時光、眼光、觀光？'],
+      ['P2', '光！三個都通'],
+      ['P3', '好吧，那就光'],
+    ],
+    ask: ['P1', `${SA} 你覺得「光」對嗎？`],
+    answer: { target_character: '光', word_1: '時光', word_2: '眼光', word_3: '觀光', reasoning: '時光、眼光、觀光都是常用詞' },
+  },
 ]
 
 /** TA's reveal of a round: its three clue characters close together in one message. */
@@ -153,7 +179,7 @@ function roundSteps(round: number, r: (typeof ROUNDS)[number]): StepInput[] {
 export default defineScenario({
   name: 'classroom-collab-ac21',
   description: 'AC-21: CRAT class with teacher, peer and analyst roles; provokes alerts, notices and peer reviews.',
-  durationSec: 55 * 60,
+  durationSec: 70 * 60,
   room: {
     mode: 'create',
     name: 'sim-ac21-collab-{ts}',
@@ -192,11 +218,23 @@ export default defineScenario({
       label: 'creator speaks once after the stall (first action)',
     },
     ...roundSteps(4, ROUNDS[3]!),
+    // The creator's first action after the round 5 stall, for the alerts AA raises during it.
+    {
+      actor: 'F',
+      at: 0,
+      do: 'wait',
+      sec: 20 + 13 * GAP_SEC,
+      when: { type: 'message', from: 'agent:TA', match: `${ROUNDS[4]!.clues[0]}[^\\n]{0,12}${ROUNDS[4]!.clues[1]}`, sinceArmed: false },
+      timeoutSec: 25 * 60,
+      label: 'waits through the round 5 stall',
+    },
+    { actor: 'F', at: 0, do: 'say', text: '我看到大家剛剛想放棄，沒關係，難的題目慢慢來。', label: 'creator speaks after the round 5 stall (first action)' },
+    ...roundSteps(5, ROUNDS[4]!),
     onClassClose('P1'),
   ],
   notes: [
     'Operator: before starting, open the teacher dashboard for this project in your own browser and keep it the visible tab (a separate window, not a background tab); the alert list reports shown alerts as viewed only while the page is visible (first_viewed_via = dashboard).',
-    'Peer reviews: SA is @mentioned four times; every SA turn is held, and TA decides each. AC-21 needs at least two different decisions among them (collaboration log on the dashboard, or peer_reviews.csv).',
+    'Peer reviews: SA is @mentioned five times; every SA turn is held, and TA decides each. AC-21 needs at least two different decisions among them (collaboration log on the dashboard, or peer_reviews.csv).',
     'Alerts: at least one AA observation with is_alert, then first_viewed_at from the dashboard and first_action_at from F\'s message (alerts.csv).',
     'Notices: at least one AA notice to TA with TA\'s decision and reason (collaboration log, analyst_notices.csv). The likeliest cause is SA\'s deliberate wrong answer if TA lets it through.',
     'Export: from the dashboard, export research data for this workspace after the run and open alerts.csv, analyst_notices.csv and peer_reviews.csv in Excel; Chinese must read correctly (the files carry a BOM).',

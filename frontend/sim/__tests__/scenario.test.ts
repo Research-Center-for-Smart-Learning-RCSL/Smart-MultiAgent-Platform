@@ -51,9 +51,10 @@ describe('shipped scenarios', () => {
       ['AA', 'observer', 'analyst'],
     ])
     const asks = s.steps.filter((x) => x.do === 'say' && x.text.startsWith('@SA 字詞拼圖同儕代理 '))
-    expect(asks).toHaveLength(4)
-    // AA wakes every 20 human messages; 39 gave it a single wake on the first staging run.
-    expect(s.steps.filter((x) => x.do === 'say' && x.actor !== 'F').length).toBeGreaterThanOrEqual(45)
+    expect(asks).toHaveLength(5)
+    // AA wakes every 20 human messages; 39 gave it a single wake on the first staging run, and the
+    // third wake (message 60) has to land inside round 5's stall.
+    expect(s.steps.filter((x) => x.do === 'say' && x.actor !== 'F').length).toBeGreaterThanOrEqual(60)
   })
 
   it.each([
