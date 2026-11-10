@@ -16,7 +16,7 @@ until 2026-11-01 is frozen in `archive/board-history-to-2026-11.md`.
 
 | Dossier | Type | Status | Title |
 |---|---|---|---|
-| [`2026-11-10-crat-lab-trial-fixes`](2026-11-10-crat-lab-trial-fixes/spec.md) | feature | draft | CRAT lab trial fixes: guest group votes, round briefs, submission wakes and a better teacher agent |
+| [`2026-11-10-crat-lab-trial-fixes`](2026-11-10-crat-lab-trial-fixes/spec.md) | feature | approved | CRAT lab trial fixes: guest group votes, round briefs, submission wakes and a better teacher agent |
 
 ## Blocked
 
