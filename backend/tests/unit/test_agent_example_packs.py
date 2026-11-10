@@ -826,6 +826,19 @@ def _section(prompt: str, tag: str) -> str:
     return m.group(1)
 
 
+def test_the_crat_analyst_is_told_when_to_notify_the_teacher_agent() -> None:
+    """[R34.04]: on the first AC-21 staging run the tool description alone raised no notice."""
+    aa = next(
+        a for p, a in SHIPPED_AGENTS if p.pack_key == "crat-word-puzzle-room" and a.key == "aa-crat-analyst"
+    )
+    rule = _section(aa.system_prompt, "代理錯誤通知")
+    assert "notify_teacher_agent" in rule
+    assert "`content`" in rule
+    assert "`strategy`" in rule
+    # SA's deliberate wrong answers are by design; only TA letting one stand is an error.
+    assert "刻意" in rule
+
+
 def _bank_lines(teacher_key: str, letter: str) -> list[str]:
     prompt = next(a for _, a in SHIPPED_AGENTS if a.key == teacher_key).system_prompt
     return [line for line in _section(prompt, "題庫").splitlines() if re.match(rf"{letter}\d+\. ", line)]
