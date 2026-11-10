@@ -268,6 +268,7 @@ const roleOptions = computed(() => [
 // stayed silent in the configuration a teacher most needs warned about: guest
 // links open with disclosure left at its default, which is on.
 const hasObserver = computed(() => boundAgents.value.some((a) => a.role === 'observer'))
+const hasTeacher = computed(() => boundAgents.value.some((a) => a.classroom_role === 'teacher'))
 const showGuestObserverCallout = computed(
   () => flags.value.allow_guest_links && hasObserver.value,
 )
@@ -835,6 +836,7 @@ watchEffect(() => {
               v-if="isCreator"
               :agent="agent"
               :busy="bindingBusy"
+              :room-has-teacher="hasTeacher"
               @save="(role) => onSetClassroomRole(agent.id, role)"
             />
             <!-- Delegated activity control ([R30.37]). Creator-only, like the role

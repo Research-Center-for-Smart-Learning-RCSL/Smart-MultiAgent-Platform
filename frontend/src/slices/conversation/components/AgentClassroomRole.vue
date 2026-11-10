@@ -16,6 +16,7 @@ import type { BoundAgent } from '../composables/useChatroomBindings'
 const props = defineProps<{
   agent: BoundAgent
   busy: boolean
+  roomHasTeacher: boolean
 }>()
 
 const emit = defineEmits<{
@@ -52,6 +53,15 @@ const options = computed(() => {
     <p class="access-row__desc">
       {{ t('conversation.classroomRole.help') }}
     </p>
+    <!-- Q-9: a peer's replies wait for a teacher agent's review, so without one they all expire unposted. -->
+    <p
+      v-if="agent.classroom_role === 'peer' && !roomHasTeacher"
+      class="classroom-role__warning"
+      role="status"
+      data-testid="classroom-role-no-teacher"
+    >
+      {{ t('conversation.classroomRole.peerWithoutTeacher') }}
+    </p>
   </div>
 </template>
 
@@ -69,7 +79,12 @@ const options = computed(() => {
   width: auto;
   min-width: 10rem;
 }
-.classroom-role .access-row__desc {
+.classroom-role .access-row__desc,
+.classroom-role__warning {
   flex-basis: 100%;
+}
+.classroom-role__warning {
+  font-size: var(--font-size-code);
+  color: var(--color-warning-on);
 }
 </style>
