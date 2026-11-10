@@ -264,7 +264,9 @@ EXPLICIT_TRIGGERS: Final[frozenset[str]] = frozenset({"mention", "release"})
 # starting, a deadline, every connected participant having submitted). Unlike an
 # explicit call they still need a live binding, but like one they bypass autostop
 # and are not counted: each fires at most once per class or activation.
-PLATFORM_TRIGGERS: Final[frozenset[str]] = frozenset({"class_start", "activity_deadline", "all_submitted"})
+PLATFORM_TRIGGERS: Final[frozenset[str]] = frozenset(
+    {"class_start", "activity_deadline", "all_submitted", "submission_received"}
+)
 
 
 @dataclass(frozen=True, slots=True)

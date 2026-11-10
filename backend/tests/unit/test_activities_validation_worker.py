@@ -122,6 +122,50 @@ class TestValidateActivitySubmission:
         assert verdict.is_valid is True
         assert verdict.sub_scores == {"g": 90}
 
+    @pytest.mark.parametrize(("completion_claimed", "wakes"), [(False, 1), (True, 0)])
+    async def test_a_validated_submission_reaches_the_submission_wake(
+        self, completion_claimed: bool, wakes: int
+    ) -> None:
+        """CRAT lab trial fixes AC-10: the async-validated path opens the same
+        window the route does, unless it claimed the completion wake."""
+        from app.wiring import platform_wakes
+
+        sub = _submission(ValidationStatus.PENDING)
+        af = MagicMock()
+        af.get_submission = AsyncMock(return_value=sub)
+        af.get_type = AsyncMock(
+            return_value=_type(
+                ValidatorKind.MCP,
+                {"agent_id": str(uuid.uuid4()), "binding_id": str(uuid.uuid4()), "tool_name": "score"},
+            )
+        )
+        af.record_validation = AsyncMock(return_value=True)
+        agents = MagicMock()
+        agents.invoke_mcp_tool = AsyncMock(
+            return_value=SimpleNamespace(ok=True, stdout='{"is_valid": true}', stderr="")
+        )
+        db = MagicMock()
+        db.commit = AsyncMock()
+        received = AsyncMock()
+
+        p1, p2, p3, p4, p5 = _patches(af, agents, db)
+        with (
+            p1,
+            p2,
+            p3,
+            p4,
+            p5,
+            patch.object(
+                platform_wakes, "check_all_submitted", new=AsyncMock(return_value=completion_claimed)
+            ),
+            patch.object(platform_wakes, "check_submission_received", new=received),
+        ):
+            await worker.validate_activity_submission({}, str(sub.id))
+
+        assert received.await_count == wakes
+        if wakes:
+            received.assert_awaited_once_with(sub.chatroom_id, sub.id)
+
     async def test_webhook_goes_through_facade_only_and_records(self) -> None:
         sub = _submission(ValidationStatus.PENDING)
         af = MagicMock()

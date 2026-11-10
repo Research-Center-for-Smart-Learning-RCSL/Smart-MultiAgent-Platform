@@ -896,7 +896,9 @@ def _class_start_agent(autostop_rounds=3):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("trigger", ["class_start", "activity_deadline", "all_submitted"])
+@pytest.mark.parametrize(
+    "trigger", ["class_start", "activity_deadline", "all_submitted", "submission_received"]
+)
 async def test_a_platform_wake_bypasses_autostop_and_carries_its_notice(monkeypatch, trigger) -> None:
     """Phase 4 AC-2: fired once per class or round, so the runaway-loop cap does not apply."""
     aid, rid = uuid.uuid4(), uuid.uuid4()
@@ -1008,6 +1010,7 @@ def _closed_room():
         "class_start",
         "activity_deadline",
         "all_submitted",
+        "submission_received",
         "analyst_notice",
     ],
 )

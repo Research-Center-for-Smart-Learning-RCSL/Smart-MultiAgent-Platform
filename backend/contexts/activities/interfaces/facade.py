@@ -593,6 +593,14 @@ class ActivitiesFacade:
             chatroom_id=chatroom_id, activation_id=activation_id
         )
 
+    async def submission_window_event(
+        self, *, chatroom_id: uuid.UUID, activation_id: uuid.UUID, window_started_at: dt.datetime
+    ) -> PlatformActivityEvent | None:
+        """The debounced submission wake's event at the end of its window."""
+        return await PlatformActivityEvents(self._db).submission_window_event(
+            chatroom_id=chatroom_id, activation_id=activation_id, window_started_at=window_started_at
+        )
+
     async def room_time_limits(self, chatroom_id: uuid.UUID) -> dict[uuid.UUID, int | None]:
         """The room's per-type overrides; a ``None`` value means "no limit"."""
         return await RoomTimeLimitRepository(self._db).for_room(chatroom_id)

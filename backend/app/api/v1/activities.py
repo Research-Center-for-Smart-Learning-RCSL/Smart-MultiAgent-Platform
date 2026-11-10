@@ -24,7 +24,7 @@ from app.api.v1.deps import (
     is_project_owner_or_admin,
 )
 from app.wiring.alert_reactions import AlertActionKind, record_alert_reaction
-from app.wiring.platform_wakes import dispatch_all_submitted
+from app.wiring.platform_wakes import dispatch_all_submitted, dispatch_submission_received
 from contexts.activities.domain.creativity_judge import JudgeStatus
 from contexts.activities.domain.errors import (
     CreativityScoringInvalid,
@@ -1525,8 +1525,8 @@ async def _dispatch_submission(
             await dispatch_dashboard_submission_validated(chatroom_id)
         except Exception:
             _log.warning("dashboard submission emit failed for %s", submission.id, exc_info=True)
-    if submission.is_valid:
-        await dispatch_all_submitted(db, chatroom_id)
+    if submission.is_valid and not await dispatch_all_submitted(db, chatroom_id):
+        await dispatch_submission_received(db, chatroom_id, submission.id)
 
 
 __all__ = [

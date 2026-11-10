@@ -921,6 +921,31 @@ class ActivitySubmissionRepository:
         ).all()
         return {r.subject_user_id for r in rows}
 
+    async def valid_counts_since(self, *, activation_id: uuid.UUID, since: dt.datetime) -> tuple[int, int]:
+        """``(since_then, in_round)`` valid submissions, individual and group alike.
+
+        The submission wake's notice ([R15.28]); counted by ``created_at``, so an
+        asynchronously validated submission counts in the window it was made in.
+        """
+        joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
+        row = (
+            await self._db.execute(
+                sa.select(
+                    sa.func.count().filter(_SUB.c.created_at >= since).label("since_then"),
+                    sa.func.count().label("in_round"),
+                )
+                .select_from(joined)
+                .where(
+                    sa.and_(
+                        _SESS.c.activation_id == activation_id,
+                        _SUB.c.deleted_at.is_(None),
+                        _SUB.c.is_valid.is_(True),
+                    )
+                )
+            )
+        ).one()
+        return int(row.since_then), int(row.in_round)
+
     async def round_subject_counts(self, *, activation_ids: Sequence[uuid.UUID]) -> list[RoundSubjectCount]:
         """Valid-only per-subject counts for the requested activity rounds."""
         if not activation_ids:

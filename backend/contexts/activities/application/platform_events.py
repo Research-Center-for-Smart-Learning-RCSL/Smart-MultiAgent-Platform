@@ -1,12 +1,14 @@
-"""The two activity facts the platform wakes a room's teacher for ([R15.28]).
+"""The activity facts the platform wakes a room's teacher for ([R15.28]).
 
-A deadline reached and every connected participant having submitted. Each is
+A deadline reached and every connected participant having submitted are each
 claimed once per activation by a guarded UPDATE, audited here, and returned for
-the caller to enqueue after its commit; this context never enqueues a turn.
+the caller to enqueue after its commit; this context never enqueues a turn. A
+valid submission is the third, debounced by the caller into a window.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +40,15 @@ def deadline_notice(activity_type: ActivityType | None) -> str:
 def completion_notice(activity_type: ActivityType | None, connected: int) -> str:
     return (
         f"Every connected participant ({connected}) has a valid submission to {_quoted_name(activity_type)}."
+    )
+
+
+def submission_notice(activity_type: ActivityType | None, *, in_window: int, in_round: int) -> str:
+    """Counts only: who submitted and what they wrote stay in the activity block."""
+    plural = "" if in_window == 1 else "s"
+    return (
+        f"{in_window} new valid submission{plural} to {_quoted_name(activity_type)} "
+        f"arrived in the last few seconds; {in_round} in this round so far."
     )
 
 
@@ -151,9 +162,43 @@ class PlatformActivityEvents:
             notice=completion_notice(activity_type, progress.connected),
         )
 
+    async def submission_window_event(
+        self, *, chatroom_id: uuid.UUID, activation_id: uuid.UUID, window_started_at: dt.datetime
+    ) -> PlatformActivityEvent | None:
+        """The submission wake at the end of its window ([R15.28]), or ``None``.
+
+        Nothing when the round has ended, when no valid submission landed in
+        the window, or when one in the window produced the completion wake: the
+        teacher was woken for that already. Not audited, unlike the two claimed
+        facts: it is a debounce over submissions the audit trail already holds.
+        """
+        activation = await self._activations.get(activation_id)
+        if (
+            activation is None
+            or activation.chatroom_id != chatroom_id
+            or activation.status is not ActivationStatus.ACTIVE
+        ):
+            return None
+        notified = activation.completion_notified_at
+        if notified is not None and notified >= window_started_at:
+            return None
+        in_window, in_round = await self._submissions.valid_counts_since(
+            activation_id=activation_id, since=window_started_at
+        )
+        if in_window == 0:
+            return None
+        activity_type = await self._types.get(activation.activity_type_id)
+        return PlatformActivityEvent(
+            chatroom_id=chatroom_id,
+            activation_id=activation_id,
+            activity_type_id=activation.activity_type_id,
+            notice=submission_notice(activity_type, in_window=in_window, in_round=in_round),
+        )
+
 
 __all__ = [
     "PlatformActivityEvents",
     "completion_notice",
     "deadline_notice",
+    "submission_notice",
 ]

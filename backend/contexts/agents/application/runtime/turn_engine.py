@@ -601,6 +601,7 @@ _WAKE_REASONS: Mapping[str, str] = {
     "class_start": "the class starting",
     "activity_deadline": "the activity's time limit",
     "all_submitted": "every connected participant having submitted",
+    "submission_received": "new activity submissions",
 }
 
 

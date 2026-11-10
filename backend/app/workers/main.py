@@ -42,6 +42,7 @@ from app.workers.tasks.activities import (
     check_all_submitted,
     expire_group_proposals,
     score_activity_submission,
+    submission_received_wake,
     validate_activity_submission,
 )
 from app.workers.tasks.advisory import daily_org_advisory_snapshot
@@ -371,6 +372,7 @@ class WorkerSettings:
             max_tries=1,
         ),
         check_all_submitted,
+        submission_received_wake,
         activities_watchdog,
         expire_group_proposals,
         retention_sweep,

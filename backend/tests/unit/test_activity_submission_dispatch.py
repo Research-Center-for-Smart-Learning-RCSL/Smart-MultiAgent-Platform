@@ -61,6 +61,7 @@ def _silence_the_other_concerns(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(activities_api, "room_channel", lambda _r: "room")
     monkeypatch.setattr(activities_api, "dispatch_room_activation_progress", AsyncMock())
     monkeypatch.setattr(activities_api, "dispatch_all_submitted", AsyncMock())
+    monkeypatch.setattr(activities_api, "dispatch_submission_received", AsyncMock())
 
 
 class TestSubmissionReArmsTheSilenceClock:

@@ -11,6 +11,7 @@ redelivery or a race with the watchdog is a no-op.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import time
 import uuid
 from typing import Any
@@ -206,9 +207,12 @@ async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) 
     if chatroom_id is not None and result_status == "validated":
         # [R15.28]: an invalid verdict counts for no one, so the check finds
         # nothing new; running it unconditionally keeps one decision point.
-        from app.wiring.platform_wakes import check_all_submitted
+        from app.wiring.platform_wakes import check_all_submitted, check_submission_received
 
-        await check_all_submitted(chatroom_id)
+        # The submission wake checks validity itself: "validated" includes an
+        # invalid verdict, which opens no window.
+        if not await check_all_submitted(chatroom_id):
+            await check_submission_received(chatroom_id, sid)
     await _emit_activity_signal(signal_payload)
     return result_status
 
@@ -362,6 +366,20 @@ async def check_all_submitted(ctx: dict[str, Any], chatroom_id: str) -> str:
 
     await platform_wakes.check_all_submitted(uuid.UUID(chatroom_id))
     return "checked"
+
+
+async def submission_received_wake(
+    ctx: dict[str, Any], chatroom_id: str, activation_id: str, window_started_at: str
+) -> str:
+    """[R15.28]: the end of a submission window (``platform_wakes.dispatch_submission_received``).
+    One job per window by the Redis claim, so a redelivery can wake twice at most."""
+    _ = ctx
+    from app.wiring import platform_wakes
+
+    queued = await platform_wakes.run_submission_wake(
+        uuid.UUID(chatroom_id), uuid.UUID(activation_id), dt.datetime.fromisoformat(window_started_at)
+    )
+    return f"woke:{queued}"
 
 
 async def activities_watchdog(ctx: dict[str, Any]) -> str:

@@ -56,7 +56,12 @@ class TestConfig:
                 _validate_wakeup_config({"triggers": {"class_start": bad}})
 
     def test_it_is_a_platform_trigger(self) -> None:
-        assert {"class_start", "activity_deadline", "all_submitted"} == PLATFORM_TRIGGERS
+        assert {
+            "class_start",
+            "activity_deadline",
+            "all_submitted",
+            "submission_received",
+        } == PLATFORM_TRIGGERS
 
 
 class TestStoredSetting:
