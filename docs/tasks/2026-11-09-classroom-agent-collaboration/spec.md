@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-11-09
 requirements: [R28.01, R28.03, R28.07, R28.13, R28.16, R33.02, R33.10, R13.72, R15.09, R29.01]
 depends_on: []
@@ -146,11 +146,11 @@ The panel shows, per target, the current prompt and the proposed prompt side by 
 
 ## 7. NFR Checklist
 
-- [ ] i18n: every new label, decision name, warning and error goes through `$t()` in `en` and `zh-TW`; `@` in any message escaped as `{'@'}`.
-- [ ] Audit log: `chatroom.classroom_role_changed`, `analyst_notice.created`, `analyst_notice.responded`, `peer_review.decided`, `agent.prompt_restored`, `classroom_design.applied`; metadata carries ids and decision kinds only, never notice, draft or prompt text (in line with [R28.11]).
-- [ ] Tenant isolation: every new endpoint resolves room or workspace access first; alert, notice and review reads are restricted to the room creator (admins bypass), matching observations; design runs and prompt revisions require `RESOURCE_CREATE_EDIT` on the agent's project, and the run's agents must all belong to the run's project.
-- [ ] Error handling UX: run pending, failed (with reason) and conflict states; empty states for alerts and the collaboration log; RFC 7807 codes for role constraint violations, notice cap, stale apply.
-- [ ] Performance: alert, notice and review lists are paginated (default 50) and indexed by `(chatroom_id, created_at)`; view reports batch up to 50 ids; each peer reply costs one extra LLM call on the teacher's key group, and each notice one teacher turn, bounded by the per-room notice cap and autostop.
+- [x] i18n: every new label, decision name, warning and error goes through `$t()` in `en` and `zh-TW`; `@` in any message escaped as `{'@'}`.
+- [x] Audit log: `chatroom.classroom_role_changed`, `analyst_notice.created`, `analyst_notice.responded`, `peer_review.decided`, `agent.prompt_restored`, `classroom_design.applied`; metadata carries ids and decision kinds only, never notice, draft or prompt text (in line with [R28.11]).
+- [x] Tenant isolation: every new endpoint resolves room or workspace access first; alert, notice and review reads are restricted to the room creator (admins bypass), matching observations; design runs and prompt revisions require `RESOURCE_CREATE_EDIT` on the agent's project, and the run's agents must all belong to the run's project.
+- [x] Error handling UX: run pending, failed (with reason) and conflict states; empty states for alerts and the collaboration log; RFC 7807 codes for role constraint violations, notice cap, stale apply.
+- [x] Performance: alert, notice and review lists are paginated (default 50) and indexed by `(chatroom_id, created_at)`; view reports batch up to 50 ids; each peer reply costs one extra LLM call on the teacher's key group, and each notice one teacher turn, bounded by the per-room notice cap and autostop.
 
 ## 8. Security Considerations
 
@@ -277,6 +277,8 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - D-18 (AC-21): The CRAT room pack's analyst prompt gained an `<代理錯誤通知>` section naming the content and strategy errors to watch for in TA and SA and when to use `notify_teacher_agent`. The spec left room pack prompts unchanged and relied on the tool description, but the first staging run raised no notice with an analyst prompt that covered only the students' discussion. The user chose to add the rule. Pack install never overwrites an agent, so the staging analyst received the same text through its agent page, which records a `manual` prompt revision.
 - D-19 (AC-21): The CRAT room pack's analyst prompt gained a `<提醒教師>` section naming when to set `present_observation`'s `alert` flag: a stall or drift that persists, a student giving up or being ignored, an agent error the students accepted, or a round the agents answered without the students. A stall TA has already resolved stays a note. The second staging run raised no alert with only the flag's description to go on. The user chose to add the rule, and the staging analyst receives the same text through its agent page.
 - D-20 (AC-21): AC-21's evidence spans two runs of the same scenario rather than one. Run 3 produced the alert with view and action times and the answered notice, but TA modified all four peer replies; run 2 holds approved and modified decisions. Whether TA approves a draft depends on what SA writes, not on the mechanism, which run 2 had already exercised. The user chose to close on the two runs instead of a fourth.
+- D-21 (NFR, error handling): The classroom role constraint violations answer with the generic problem types `validation` (422) and `conflict` (409) produced by the shared HTTP exception handler, not with dedicated types. Both are valid RFC 7807 responses, and the frontend needs only the status to tell the one conflict case (a second teacher) apart. Stale apply has its own type (`agents/design-apply-conflict`), as the item asks. The peer-without-teacher warning (Q-9) and the empty states for alerts and the collaboration log were missing at the NFR check and were added before closing.
+- D-22 (NFR, error handling): The notice cap has no RFC 7807 code because no HTTP endpoint creates notices. The analyst creates them through `notify_teacher_agent`, and the cap answers as a tool refusal (`NoticeRefusal.RATE_LIMITED`) the model reads, which is the surface the cap actually has.
 
 ## 16. Follow-ups
 
