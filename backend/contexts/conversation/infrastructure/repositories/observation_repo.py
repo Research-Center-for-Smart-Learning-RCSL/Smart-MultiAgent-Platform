@@ -312,22 +312,28 @@ class ObservationRepository:
         """Close the open alerts of a room raised up to now, or one alert.
 
         ``now()`` is the transaction's start time, so an alert recorded after the
-        acting transaction began is not closed by it."""
+        acting transaction began is not closed by it. A room-wide action closes only
+        alerts the creator has viewed: an action taken without seeing the alert is
+        not a reaction to it. A per-alert action (release, delete) is performed on
+        the rendered alert, so it records the view itself when none is recorded."""
+        obs = t.agent_observations
         clauses: list[sa.ColumnElement[bool]] = [
-            t.agent_observations.c.chatroom_id == chatroom_id,
-            t.agent_observations.c.is_alert.is_(True),
-            t.agent_observations.c.first_action_at.is_(None),
-            t.agent_observations.c.created_at <= sa.func.now(),
+            obs.c.chatroom_id == chatroom_id,
+            obs.c.is_alert.is_(True),
+            obs.c.first_action_at.is_(None),
+            obs.c.created_at <= sa.func.now(),
         ]
+        values: dict[str, Any] = {"first_action_at": sa.func.now(), "first_action_kind": kind.value}
         if observation_id is not None:
-            clauses.append(t.agent_observations.c.id == observation_id)
+            clauses.append(obs.c.id == observation_id)
+            values["first_viewed_at"] = sa.func.coalesce(obs.c.first_viewed_at, sa.func.now())
+            values["first_viewed_via"] = sa.func.coalesce(
+                obs.c.first_viewed_via, AlertViewSurface.PANEL.value
+            )
         else:
-            clauses.append(t.agent_observations.c.deleted_at.is_(None))
-        result = await self._db.execute(
-            t.agent_observations.update()
-            .where(sa.and_(*clauses))
-            .values(first_action_at=sa.func.now(), first_action_kind=kind.value)
-        )
+            clauses.append(obs.c.deleted_at.is_(None))
+            clauses.append(obs.c.first_viewed_at.is_not(None))
+        result = await self._db.execute(obs.update().where(sa.and_(*clauses)).values(**values))
         return int(result.rowcount or 0)
 
     async def list_alerts(

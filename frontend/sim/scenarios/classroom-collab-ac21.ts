@@ -207,7 +207,8 @@ export default defineScenario({
     onRoundStart('P2', 1),
     onRoundStart('P3', 1),
     ...ROUNDS.slice(0, 3).flatMap((r, i) => roundSteps(i + 1, r)),
-    // The creator's first action after the round 3 stall: sets first_action_at on every alert raised before it.
+    // The creator's first action after the round 3 stall: sets first_action_at on every alert raised
+    // before it that the operator's dashboard has already reported as viewed.
     {
       actor: 'F',
       at: '15:00',

@@ -189,6 +189,15 @@ async def _obs_row(session: AsyncSession, observation_id: uuid.UUID) -> sa.Row:
     ).one()
 
 
+async def _view(service: ObservationService, room: Room, observation_id: uuid.UUID) -> None:
+    await service.record_views(
+        chatroom_id=room.chatroom_id,
+        actor_user_id=room.creator_id,
+        observation_ids=[observation_id],
+        via=AlertViewSurface.PANEL,
+    )
+
+
 class TestAlertReactionTimes:
     async def test_only_the_first_view_is_kept(
         self, sessionmaker: async_sessionmaker[AsyncSession], room: Room
@@ -260,6 +269,7 @@ class TestAlertReactionTimes:
         async with sessionmaker() as session:
             alert = await _alert(session, room)
             service = ObservationService(session)
+            await _view(service, room, alert)
             assert (
                 await service.record_room_action(
                     chatroom_id=room.chatroom_id,
@@ -278,6 +288,7 @@ class TestAlertReactionTimes:
             )
             await session.commit()
             later = await _alert(session, room)
+            await _view(service, room, later)
             await service.record_room_action(
                 chatroom_id=room.chatroom_id, actor_user_id=room.creator_id, kind=AlertActionKind.ROOM_MESSAGE
             )
@@ -286,6 +297,33 @@ class TestAlertReactionTimes:
             assert first.first_action_kind == "activity_started"
             assert second.first_action_kind == "room_message"
             assert second.first_action_at > first.first_action_at
+
+    async def test_a_room_action_before_the_view_is_not_a_reaction(
+        self, sessionmaker: async_sessionmaker[AsyncSession], room: Room
+    ) -> None:
+        async with sessionmaker() as session:
+            alert = await _alert(session, room)
+            service = ObservationService(session)
+            closed = await service.record_room_action(
+                chatroom_id=room.chatroom_id, actor_user_id=room.creator_id, kind=AlertActionKind.ROOM_MESSAGE
+            )
+            await session.commit()
+            assert closed == 0
+            assert (await _obs_row(session, alert)).first_action_at is None
+        async with sessionmaker() as session:
+            service = ObservationService(session)
+            await _view(service, room, alert)
+            await session.commit()
+        async with sessionmaker() as session:
+            service = ObservationService(session)
+            closed = await service.record_room_action(
+                chatroom_id=room.chatroom_id, actor_user_id=room.creator_id, kind=AlertActionKind.ROOM_MESSAGE
+            )
+            await session.commit()
+            row = await _obs_row(session, alert)
+            assert closed == 1
+            assert row.first_action_kind == "room_message"
+            assert row.first_action_at >= row.first_viewed_at
 
     async def test_deleting_an_alert_is_its_first_action(
         self, sessionmaker: async_sessionmaker[AsyncSession], room: Room
@@ -302,6 +340,9 @@ class TestAlertReactionTimes:
             row = await _obs_row(session, alert)
             assert row.deleted_at is not None
             assert row.first_action_kind == "deleted"
+            # Deleting is done on the rendered alert, so it is also the view.
+            assert row.first_viewed_via == "panel"
+            assert row.first_viewed_at is not None
             exported = await ObservationService(session).list_alerts(
                 chatroom_ids=[room.chatroom_id], include_deleted=True
             )

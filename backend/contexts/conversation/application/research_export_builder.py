@@ -84,7 +84,9 @@ _MANIFEST_NOTES: Final = (
     "alerts.csv lists observations an analyst agent flagged as alerts, deleted ones "
     "included. first_viewed_at is reported by the room creator's browser when the alert "
     "was shown on an open, visible observer panel or dashboard, so a client that failed "
-    "to report leaves it empty; first_action_at is recorded by the server. Latencies are "
+    "to report leaves it empty; first_action_at is recorded by the server, and only after "
+    "the alert was viewed: a release or delete counts as viewing it on the panel. Alerts "
+    "recorded before 2026-11-10 may show an action that preceded the view. Latencies are "
     "seconds from raised_at.",
     "analyst_notices.csv lists the private notices an analyst agent sent the room's teacher "
     "agent and the teacher agent's answer. status is answered once a decision exists, "

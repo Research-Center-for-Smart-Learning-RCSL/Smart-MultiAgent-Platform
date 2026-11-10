@@ -11,12 +11,11 @@ until 2026-11-01 is frozen in `archive/board-history-to-2026-11.md`.
 | Dossier | Type | Status | Title |
 |---|---|---|---|
 | [`2026-07-19-large-artifacts-silently-dropped`](2026-07-19-large-artifacts-silently-dropped/spec.md) | bugfix | in-progress | A `code_exec` artifact over 8 MiB is silently destroyed |
+| [`2026-11-10-crat-lab-trial-fixes`](2026-11-10-crat-lab-trial-fixes/spec.md) | feature | in-progress | CRAT lab trial fixes: guest group votes, round briefs, submission wakes and a better teacher agent |
 
 ## Ready now
 
-| Dossier | Type | Status | Title |
-|---|---|---|---|
-| [`2026-11-10-crat-lab-trial-fixes`](2026-11-10-crat-lab-trial-fixes/spec.md) | feature | approved | CRAT lab trial fixes: guest group votes, round briefs, submission wakes and a better teacher agent |
+None.
 
 ## Blocked
 
