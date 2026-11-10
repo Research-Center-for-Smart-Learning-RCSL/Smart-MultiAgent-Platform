@@ -1,12 +1,11 @@
 <script setup lang="ts">
 // Collaboration log ([R34.03], [R34.06]): what the analyst agent told the
 // teacher agent and how it answered, and every student agent reply the teacher
-// agent reviewed. Hidden when empty, like the alerts list: most rooms have
-// neither.
+// agent reviewed. Shows an empty state once loaded, like the alerts list.
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { ChatBubbleLeftRightIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline'
-import { SCard, SQueryError, SRelativeTime } from '@shared/ui'
+import { SCard, SEmptyState, SQueryError, SRelativeTime } from '@shared/ui'
 import { useDashboardCollaboration } from '../composables/useDashboardCollaboration'
 import type { CollaborationEntry } from '../types'
 
@@ -15,7 +14,7 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
-const { entries, error, refetch } = useDashboardCollaboration(() => props.workspaceId)
+const { entries, isLoading, error, refetch } = useDashboardCollaboration(() => props.workspaceId)
 
 function outcomeLabel(entry: CollaborationEntry): string {
   if (entry.kind === 'peer_review') return t(`dashboard.collaboration.peerReview.status.${entry.status}`)
@@ -26,7 +25,7 @@ function outcomeLabel(entry: CollaborationEntry): string {
 
 <template>
   <section
-    v-if="entries.length || error"
+    v-if="!isLoading"
     aria-labelledby="dashboard-collaboration-heading"
   >
     <SCard class="p-4">
@@ -41,6 +40,10 @@ function outcomeLabel(entry: CollaborationEntry): string {
         :message="error.message"
         :retry-label="t('dashboard.retry')"
         @retry="refetch()"
+      />
+      <SEmptyState
+        v-else-if="!entries.length"
+        :text="t('dashboard.collaboration.empty')"
       />
       <ul
         v-else

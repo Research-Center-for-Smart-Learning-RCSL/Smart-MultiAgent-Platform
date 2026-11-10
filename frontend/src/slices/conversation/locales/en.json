@@ -449,7 +449,8 @@
       "peer": "Student agent",
       "analyst": "Analyst",
       "failed": "Could not change the classroom role.",
-      "teacherTaken": "This room already has a teacher agent. Set that agent to another role first."
+      "teacherTaken": "This room already has a teacher agent. Set that agent to another role first.",
+      "peerWithoutTeacher": "This room has no teacher agent, so this student agent's replies are held and expire without being posted. Give another agent the teacher role."
     },
     "draftAccess": {
       "label": "May read unsent text",

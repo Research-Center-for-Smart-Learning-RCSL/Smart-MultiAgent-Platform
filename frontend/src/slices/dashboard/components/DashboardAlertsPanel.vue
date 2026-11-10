@@ -1,12 +1,12 @@
 <script setup lang="ts">
 // Analyst alerts on the dashboard ([R34.02]). Owns its query so the view model
-// stays about room status; rendered only when there is something to show, since
-// most rooms have no analyst and an empty card would be noise.
+// stays about room status. Empty once loaded shows an empty state, so "no alerts"
+// reads differently from "this dashboard has no alert list".
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
-import { SCard, SQueryError, SRelativeTime } from '@shared/ui'
+import { SCard, SEmptyState, SQueryError, SRelativeTime } from '@shared/ui'
 import { useDashboardAlerts } from '../composables/useDashboardAlerts'
 import type { DashboardAlert } from '../types'
 
@@ -15,7 +15,7 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
-const { alerts, error, refetch } = useDashboardAlerts(() => props.workspaceId)
+const { alerts, isLoading, error, refetch } = useDashboardAlerts(() => props.workspaceId)
 
 const openCount = computed(() => alerts.value.filter((a) => !a.first_action_at).length)
 
@@ -29,7 +29,7 @@ function stateLabel(alert: DashboardAlert): string {
 
 <template>
   <section
-    v-if="alerts.length || error"
+    v-if="!isLoading"
     aria-labelledby="dashboard-alerts-heading"
   >
     <SCard class="p-4">
@@ -52,6 +52,10 @@ function stateLabel(alert: DashboardAlert): string {
         :message="error.message"
         :retry-label="t('dashboard.retry')"
         @retry="refetch()"
+      />
+      <SEmptyState
+        v-else-if="!alerts.length"
+        :text="t('dashboard.alerts.empty')"
       />
       <ul
         v-else

@@ -15,20 +15,20 @@ function optionValues(wrapper: { findAll: (s: string) => Array<{ attributes: (n:
 
 describe('AgentClassroomRole', () => {
   it('offers teacher and peer on a participant binding, never analyst', async () => {
-    const wrapper = await renderView(AgentClassroomRole, { props: { agent: boundAgent(), busy: false } })
+    const wrapper = await renderView(AgentClassroomRole, { props: { agent: boundAgent(), busy: false, roomHasTeacher: false } })
     expect(optionValues(wrapper)).toEqual(['none', 'teacher', 'peer'])
   })
 
   it('offers only analyst on an observer binding', async () => {
     const wrapper = await renderView(AgentClassroomRole, {
-      props: { agent: boundAgent({ role: 'observer' }), busy: false },
+      props: { agent: boundAgent({ role: 'observer' }), busy: false, roomHasTeacher: false },
     })
     expect(optionValues(wrapper)).toEqual(['none', 'analyst'])
   })
 
   it('shows the stored role and emits the chosen one', async () => {
     const wrapper = await renderView(AgentClassroomRole, {
-      props: { agent: boundAgent({ classroom_role: 'teacher' }), busy: false },
+      props: { agent: boundAgent({ classroom_role: 'teacher' }), busy: false, roomHasTeacher: true },
     })
     const select = wrapper.find('select')
     expect((select.element as HTMLSelectElement).value).toBe('teacher')
@@ -37,7 +37,25 @@ describe('AgentClassroomRole', () => {
   })
 
   it('is disabled while a binding write is in flight', async () => {
-    const wrapper = await renderView(AgentClassroomRole, { props: { agent: boundAgent(), busy: true } })
+    const wrapper = await renderView(AgentClassroomRole, { props: { agent: boundAgent(), busy: true, roomHasTeacher: false } })
     expect(wrapper.find('select').attributes('disabled')).toBeDefined()
+  })
+
+  // Q-9: without a teacher agent every peer reply expires unposted.
+  it('warns on a peer binding only while the room has no teacher agent', async () => {
+    const lone = await renderView(AgentClassroomRole, {
+      props: { agent: boundAgent({ classroom_role: 'peer' }), busy: false, roomHasTeacher: false },
+    })
+    expect(lone.find('[data-testid="classroom-role-no-teacher"]').text()).toBe('conversation.classroomRole.peerWithoutTeacher')
+
+    const taught = await renderView(AgentClassroomRole, {
+      props: { agent: boundAgent({ classroom_role: 'peer' }), busy: false, roomHasTeacher: true },
+    })
+    expect(taught.find('[data-testid="classroom-role-no-teacher"]').exists()).toBe(false)
+
+    const notPeer = await renderView(AgentClassroomRole, {
+      props: { agent: boundAgent({ classroom_role: 'none' }), busy: false, roomHasTeacher: false },
+    })
+    expect(notPeer.find('[data-testid="classroom-role-no-teacher"]').exists()).toBe(false)
   })
 })

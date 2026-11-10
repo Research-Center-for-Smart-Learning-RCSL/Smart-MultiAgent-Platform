@@ -63,11 +63,12 @@ function entry(over: Partial<NoticeEntry> = {}): NoticeEntry {
 describe('DashboardCollaborationPanel', () => {
   beforeEach(() => collaborationMock.mockReset())
 
-  it('renders nothing when the log is empty', async () => {
+  it('shows an empty state when the log is empty', async () => {
     collaborationMock.mockResolvedValue({ entries: [] })
     const wrapper = await renderView(DashboardCollaborationPanel, { props: { workspaceId: 'w1' } })
     await flushPromises()
-    expect(wrapper.find('section').exists()).toBe(false)
+    expect(wrapper.find('section').text()).toContain('dashboard.collaboration.empty')
+    expect(wrapper.findAll('[data-testid="collaboration-entry"]')).toHaveLength(0)
   })
 
   it('shows error, suggestion, decision and reason per notice', async () => {
