@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ApiError } from '@shared/errors'
 import { SButton, SDraftDisclosureChip, SEmptyState, SLoadingSpinner, SSelect, STextarea } from '@shared/ui'
 import { useSessionStore } from '@shared/stores/session'
-import { isGuestSession } from '@shared/transport'
+import { guestSessionId, isGuestSession } from '@shared/transport'
 import {
   endActivation,
   getActiveActivation,
@@ -48,6 +48,9 @@ const { isPolicyRefusal, refusedFieldLabel } = usePolicyRefusal()
 const session = useSessionStore()
 // An anonymous guest has no `session.me` but is a full participant ([R30.26]).
 const canDeclareDone = computed(() => !!session.me?.id || isGuestSession.value)
+// The id the server knows this viewer by: a guest's is its guest session id,
+// which is what a room group pins on its ballot ([R30.49]).
+const viewerId = computed(() => (isGuestSession.value ? guestSessionId.value : (session.me?.id ?? null)))
 const store = useActivitiesStore()
 const types = ref<ActivityType[]>([])
 const selectedTypeId = ref<string | null>(null)
@@ -87,7 +90,7 @@ const group = useGroupProposal({
   chatroomId: () => props.chatroomId,
   activationId: () => (consent.value ? (activation.value?.id ?? null) : null),
   activityTypeId: () => activation.value?.activityTypeId ?? null,
-  viewerUserId: () => session.me?.id ?? null,
+  viewerUserId: () => viewerId.value,
   isCreator: () => props.isCreator,
 })
 // Three states, not two. Until the server has answered for this round, whether
@@ -479,7 +482,7 @@ onBeforeUnmount(() => {
           :my-vote="group.myVote.value"
           :is-proposer="group.isProposer.value"
           :pending="group.pending.value"
-          :can-vote="!!session.me?.id"
+          :can-vote="!!viewerId"
           :can-retry="canProposeAgain"
           @vote="(approve) => onVote(approve)"
           @withdraw="onWithdraw"

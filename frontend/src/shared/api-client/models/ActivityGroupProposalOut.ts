@@ -18,6 +18,7 @@ export type ActivityGroupProposalOut = {
     chatroom_id: string;
     created_at: (string | null);
     expires_at: (string | null);
+    group_kind?: string;
     id: string;
     member_group_id: string;
     payload: Record<string, any>;

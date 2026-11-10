@@ -232,12 +232,16 @@ export function useGroupProposal(options: UseGroupProposalOptions): UseGroupProp
   ): Promise<void> {
     const activityTypeId = toValue(options.activityTypeId)
     if (!activityTypeId) return
+    // The room group's id is the chatroom id ([R30.49]); the server needs the
+    // kind to know it is not naming a Member Group.
+    const kind = eligibleGroups.value.find((g) => g.id === memberGroupId)?.kind
     await mutate(
       () =>
         createGroupProposal(toValue(options.chatroomId), {
           activity_type_id: activityTypeId,
           member_group_id: memberGroupId,
           payload,
+          group_kind: kind === 'room' ? 'room' : 'member_group',
         }),
       'activities.group.proposeFailed',
     )

@@ -388,6 +388,25 @@ describe('mutations', () => {
       activity_type_id: 'at_1',
       member_group_id: MY_GROUP,
       payload: { answer: 'ours' },
+      group_kind: 'member_group',
+    })
+  })
+
+  it('names the room kind when proposing for the room group', async () => {
+    listGroupProposalsMock.mockResolvedValue({
+      items: [],
+      eligible_groups: [{ id: ROOM, name: 'CRAT lab', kind: 'room' }],
+    })
+    const { group } = await mountComposable({ viewerUserId: 'gs_bob' })
+    createGroupProposalMock.mockResolvedValue(proposal({ id: 'p_4', member_group_id: ROOM }))
+
+    await group.propose(ROOM, { answer: 'ours' })
+
+    expect(createGroupProposalMock).toHaveBeenCalledWith(ROOM, {
+      activity_type_id: 'at_1',
+      member_group_id: ROOM,
+      payload: { answer: 'ours' },
+      group_kind: 'room',
     })
   })
 

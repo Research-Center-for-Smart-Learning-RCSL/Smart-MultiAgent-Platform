@@ -49,9 +49,11 @@ const wsHandlers = vi.hoisted(
 // An anonymous guest has no `session.me`; the transport's guest flag is what
 // identifies them.
 const guestSession = vi.hoisted(() => ({ value: false }))
+const guestId = vi.hoisted(() => ({ value: null as string | null }))
 vi.mock('@shared/transport', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   isGuestSession: guestSession,
+  guestSessionId: guestId,
   wsManager: {
     channel: () => ({
       subscribe: (name: string, handler: (ev: Record<string, unknown>) => void) => {
@@ -101,6 +103,7 @@ function activeActivation(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   sessionMe.value = null
   guestSession.value = false
+  guestId.value = null
   getOwnRoundSessionMock.mockResolvedValue(null)
   getActivationProgressMock.mockResolvedValue({ completed: 0, in_progress: 0 })
   listGroupProposalsMock.mockResolvedValue({ items: [], eligible_groups: [] })
@@ -128,10 +131,11 @@ describe('ActivityPanel — group mode ([R30.40], [R30.41])', () => {
 
   async function panel(over: {
     groupConfig?: Record<string, unknown> | null
-    eligible?: Array<{ id: string; name: string }>
+    eligible?: Array<{ id: string; name: string; kind?: string }>
     items?: unknown[]
+    me?: { id: string } | null
   } = {}) {
-    sessionMe.value = { id: 'u_bob' }
+    sessionMe.value = 'me' in over ? (over.me ?? null) : { id: 'u_bob' }
     getActiveActivationMock.mockResolvedValue(
       activeActivation({
         // `??` would fold an explicit null back to the default, which is the
@@ -222,8 +226,49 @@ describe('ActivityPanel — group mode ([R30.40], [R30.41])', () => {
       activity_type_id: 'at_1',
       member_group_id: 'g1',
       payload: { answer: 'our answer' },
+      group_kind: 'member_group',
     })
     expect(submitActivityMock).not.toHaveBeenCalled()
+  })
+
+  it('lets a guest propose for the room group without a picker', async () => {
+    // [R30.49]: with no Member Group bound, the room is the one group and its
+    // id is the chatroom id; the server needs the kind to know that.
+    guestSession.value = true
+    guestId.value = 'gs_bob'
+    createGroupProposalMock.mockResolvedValue({})
+    const wrapper = await panel({ eligible: [{ id: 'c1', name: 'CRAT lab', kind: 'room' }], me: null })
+
+    expect(wrapper.find('select').exists()).toBe(false)
+    await wrapper.find('form input').setValue('cake')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(createGroupProposalMock).toHaveBeenCalledWith('c1', {
+      activity_type_id: 'at_1',
+      member_group_id: 'c1',
+      payload: { answer: 'cake' },
+      group_kind: 'room',
+    })
+  })
+
+  it("lets a guest vote on another guest's room-group proposal", async () => {
+    // The card's vote gate read `session.me`, which a guest never has.
+    guestSession.value = true
+    guestId.value = 'gs_bob'
+    voteOnGroupProposalMock.mockResolvedValue(buildGroupProposal({ approvals: 2, status: 'accepted' }))
+    const wrapper = await panel({
+      eligible: [{ id: 'c1', name: 'CRAT lab', kind: 'room' }],
+      items: [buildGroupProposal({ member_group_id: 'c1', proposer_user_id: 'gs_alice' })],
+      me: null,
+    })
+
+    const approve = wrapper.find('[data-testid="group-proposal-approve"]')
+    expect(approve.attributes('disabled')).toBeUndefined()
+    await approve.trigger('click')
+    await flushPromises()
+
+    expect(voteOnGroupProposalMock).toHaveBeenCalledWith('c1', 'p_1', true)
   })
 
   it('shows the card instead of the form once a proposal is open', async () => {

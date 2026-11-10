@@ -11,6 +11,7 @@
  */
 export type ActivityMemberGroupRefOut = {
     id: string;
+    kind?: string;
     name: string;
 };
 

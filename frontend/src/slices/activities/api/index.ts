@@ -233,7 +233,12 @@ export async function listGroupProposals(
  *  fails here rather than after three people have voted for it. */
 export async function createGroupProposal(
   chatroomId: string,
-  body: { activity_type_id: string; member_group_id: string; payload: Record<string, unknown> },
+  body: {
+    activity_type_id: string
+    member_group_id: string
+    payload: Record<string, unknown>
+    group_kind?: 'member_group' | 'room'
+  },
 ): Promise<ActivityGroupProposalOut> {
   return ActivitiesService.createActivityGroupProposalApiChatroomsChatroomIdActivityProposalsPost({
     chatroomId,
