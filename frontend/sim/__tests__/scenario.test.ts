@@ -52,8 +52,8 @@ describe('shipped scenarios', () => {
     ])
     const asks = s.steps.filter((x) => x.do === 'say' && x.text.startsWith('@SA 字詞拼圖同儕代理 '))
     expect(asks).toHaveLength(4)
-    // AA wakes every 20 student messages; two wakes need 40.
-    expect(s.steps.filter((x) => x.do === 'say' && x.actor !== 'F').length).toBeGreaterThanOrEqual(38)
+    // AA wakes every 20 human messages; 39 gave it a single wake on the first staging run.
+    expect(s.steps.filter((x) => x.do === 'say' && x.actor !== 'F').length).toBeGreaterThanOrEqual(45)
   })
 
   it.each([

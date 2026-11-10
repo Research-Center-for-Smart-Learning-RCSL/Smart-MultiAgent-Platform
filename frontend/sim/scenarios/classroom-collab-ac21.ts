@@ -10,8 +10,8 @@ import { onClassClose, onRoundStart } from '../scenario/rounds.ts'
 // - Peer reviews: the students @mention SA once per round. SA's prompt makes its second answer a
 //   deliberate wrong one, so TA reviews at least one wrong draft beside correct ones, which is
 //   where different decisions (approve, modify, reject) come from.
-// - Alerts and notices: AA wakes every 20 student messages and after 10 minutes of silence. The
-//   script sends well over 40 student messages, and round 3 opens with a stall that drifts off
+// - Alerts and notices: AA wakes every 20 human messages and after 10 minutes of silence. The
+//   script sends about 48 student messages (39 gave AA a single wake on the first run), and round 3 opens with a stall that drifts off
 //   topic, the "group that is stuck" case the alert argument describes. A wrong SA answer that
 //   reaches the room is the "agent said something wrong" case for both an alert and a notice.
 // - Reaction times: the operator keeps the teacher dashboard open in their own browser while the
@@ -36,6 +36,9 @@ const ROUNDS: Array<{ clues: [string, string, string]; talk: Array<[string, stri
       ['P3', '粗心我常常被老師說'],
       ['P2', '哈哈我也是'],
       ['P1', '那就是心吧'],
+      ['P3', '點火可以，但粗火真的不是詞'],
+      ['P2', '我們再確認一下三個都通'],
+      ['P1', '點心、放心、粗心，都很常見'],
     ],
     ask: ['P2', `${SA} 你覺得這題是什麼字？`],
     answer: { target_character: '心', word_1: '點心', word_2: '放心', word_3: '粗心', reasoning: '三個都是常用詞' },
@@ -49,6 +52,9 @@ const ROUNDS: Array<{ clues: [string, string, string]; talk: Array<[string, stri
       ['P3', '還是要確認一下三個都通'],
       ['P1', '口水、淚水、香水，都通'],
       ['P2', '我也覺得是水'],
+      ['P3', '淚水作文裡很常看到'],
+      ['P1', '香水我媽媽也有在用'],
+      ['P2', '口水最常講了'],
     ],
     ask: ['P1', `${SA} 你有想到別的字嗎？`],
     answer: { target_character: '水', word_1: '口水', word_2: '淚水', word_3: '香水', reasoning: '口味可以但淚味不行，水三個都通' },
@@ -66,25 +72,29 @@ const ROUNDS: Array<{ clues: [string, string, string]; talk: Array<[string, stri
       ['P2', '對啦，回來想題目'],
       ['P3', '主人、客人、詩人？'],
       ['P1', '對！是人'],
+      ['P2', '詩人就是寫詩的人'],
     ],
     ask: ['P3', `${SA} 你覺得「人」對嗎？還是有更好的？`],
     answer: { target_character: '人', word_1: '主人', word_2: '客人', word_3: '詩人', reasoning: '都是指某一種人' },
   },
   {
-    clues: ['眼', '時', '觀'],
+    // The pack's fourth item (staging run 20261110-000732), not the scenario's choice.
+    clues: ['颱', '威', '兜'],
     talk: [
-      ['P2', '眼光、時光、觀光'],
-      ['P1', '光三個都很順'],
-      ['P3', '眼神、時神？不對'],
-      ['P1', '時光比時神正常多了'],
-      ['P3', '觀光也很常用'],
-      ['P2', '眼界、時界？好像也不對'],
-      ['P1', '光最穩'],
+      ['P2', '颱風、威風、兜風？'],
+      ['P1', '風好像三個都可以'],
+      ['P3', '颱風一定對，兜風是騎車出去玩'],
+      ['P1', '威風是很神氣的意思'],
+      ['P2', '颱雨？好像不是詞'],
+      ['P3', '威力、兜力？兜力不行'],
+      ['P1', '風最穩'],
       ['P3', '這題比上一題簡單'],
-      ['P2', '那就是光'],
+      ['P2', '那就是風'],
+      ['P1', '再確認一次：颱風、威風、兜風'],
+      ['P3', '三個都通'],
     ],
-    ask: ['P2', `${SA} 你也覺得是光嗎？`],
-    answer: { target_character: '光', word_1: '眼光', word_2: '時光', word_3: '觀光', reasoning: '三個都是常用詞' },
+    ask: ['P2', `${SA} 你也覺得是風嗎？`],
+    answer: { target_character: '風', word_1: '颱風', word_2: '威風', word_3: '兜風', reasoning: '颱雨、兜力不是詞，風三個都通' },
   },
 ]
 
@@ -143,7 +153,7 @@ function roundSteps(round: number, r: (typeof ROUNDS)[number]): StepInput[] {
 export default defineScenario({
   name: 'classroom-collab-ac21',
   description: 'AC-21: CRAT class with teacher, peer and analyst roles; provokes alerts, notices and peer reviews.',
-  durationSec: 45 * 60,
+  durationSec: 55 * 60,
   room: {
     mode: 'create',
     name: 'sim-ac21-collab-{ts}',
@@ -185,7 +195,7 @@ export default defineScenario({
     onClassClose('P1'),
   ],
   notes: [
-    'Operator: before starting, open the teacher dashboard for this project in your own browser and leave it open; the alert list reports shown alerts as viewed (first_viewed_via = dashboard).',
+    'Operator: before starting, open the teacher dashboard for this project in your own browser and keep it the visible tab (a separate window, not a background tab); the alert list reports shown alerts as viewed only while the page is visible (first_viewed_via = dashboard).',
     'Peer reviews: SA is @mentioned four times; every SA turn is held, and TA decides each. AC-21 needs at least two different decisions among them (collaboration log on the dashboard, or peer_reviews.csv).',
     'Alerts: at least one AA observation with is_alert, then first_viewed_at from the dashboard and first_action_at from F\'s message (alerts.csv).',
     'Notices: at least one AA notice to TA with TA\'s decision and reason (collaboration log, analyst_notices.csv). The likeliest cause is SA\'s deliberate wrong answer if TA lets it through.',
