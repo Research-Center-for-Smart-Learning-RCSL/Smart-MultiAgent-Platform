@@ -132,6 +132,25 @@ class CreativityScoringInvalid(ActivitiesError):
     code = "activities/creativity-scoring-invalid"
 
 
+class RoomCreatorNotInRoomGroup(ActivitiesError):
+    """The room creator tried to propose in the room group ([R30.49]) (403).
+
+    The creator is the teacher of the room: the room group is everyone else,
+    and a teacher's proposal would be answered by the class on the teacher's
+    terms rather than agreed among the students."""
+
+    code = "activities/room-creator-not-in-room-group"
+
+
+class RoomGroupBallotUnavailable(ActivitiesError):
+    """Presence could not be read, so the room group's ballot cannot be pinned (503).
+
+    Refused rather than pinned to the proposer alone: a one-person ballot would
+    accept the proposal at once and silently skip the vote it exists to hold."""
+
+    code = "activities/room-group-ballot-unavailable"
+
+
 class RoundBriefInvalid(ActivitiesError):
     """A round brief is too long, has too many lines, or carries control
     characters (422). The message is safe to show the caller: it names the rule,
@@ -243,6 +262,9 @@ __all__ = [
     "NotAGroupMember",
     "PayloadSchemaInvalid",
     "PlatformActivityTypeReadOnly",
+    "RoomCreatorNotInRoomGroup",
+    "RoomGroupBallotUnavailable",
+    "RoundBriefInvalid",
     "SessionNotFound",
     "SubmissionNotFound",
     "SubmissionPayloadInvalid",

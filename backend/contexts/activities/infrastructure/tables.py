@@ -113,6 +113,8 @@ activity_sessions = sa.Table(
     # tenancy context and [R30.09] forbids the cross-context join a constraint
     # would invite (the shape `activity_activations.started_by_agent_id` uses).
     sa.Column("subject_member_group_id", pg.UUID(as_uuid=True), nullable=True),
+    # On a group session, 'member_group' or 'room' (0115); personal rows keep the default.
+    sa.Column("group_kind", sa.Text, nullable=False, server_default=sa.text("'member_group'")),
     # The round this session was answered under -- 0077. NULL only for
     # pre-0077 rows; every writer sets it, which is a writer invariant rather
     # than a schema one (a NOT NULL would need activations invented for history).
@@ -338,12 +340,12 @@ activity_group_proposals = sa.Table(
     ),
     # No FK, for the reason activity_sessions.subject_member_group_id carries none.
     sa.Column("member_group_id", pg.UUID(as_uuid=True), nullable=False),
-    sa.Column(
-        "proposer_user_id",
-        pg.UUID(as_uuid=True),
-        sa.ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-    ),
+    # A user's or a guest session's id, said by `proposer_kind`; no FK since 0115
+    # for the reason 0098 dropped the one on activity_sessions.subject_user_id.
+    sa.Column("proposer_user_id", pg.UUID(as_uuid=True), nullable=False),
+    sa.Column("proposer_kind", sa.Text, nullable=False, server_default=sa.text("'user'")),
+    # 'member_group', or 'room' when member_group_id is the chatroom id ([R30.49]).
+    sa.Column("group_kind", sa.Text, nullable=False, server_default=sa.text("'member_group'")),
     sa.Column("payload", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     # The voter set pinned at creation, and the bar computed from it ([R30.41]).
     # Both stored, so resolution needs no membership re-read and a mid-vote
@@ -373,12 +375,9 @@ activity_group_proposal_votes = sa.Table(
         sa.ForeignKey("activity_group_proposals.id", ondelete="CASCADE"),
         primary_key=True,
     ),
-    sa.Column(
-        "user_id",
-        pg.UUID(as_uuid=True),
-        sa.ForeignKey("users.id", ondelete="CASCADE"),
-        primary_key=True,
-    ),
+    # A user's or a guest session's id, said by `voter_kind` (0115).
+    sa.Column("user_id", pg.UUID(as_uuid=True), primary_key=True),
+    sa.Column("voter_kind", sa.Text, nullable=False, server_default=sa.text("'user'")),
     sa.Column("choice", sa.Text, nullable=False),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )

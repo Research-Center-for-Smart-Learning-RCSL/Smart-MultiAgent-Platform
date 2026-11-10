@@ -1,4 +1,4 @@
-{
+﻿{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -288,10 +288,20 @@
         "type": "object"
       },
       "ActivityGroupProposalIn": {
+        "description": "``member_group_id`` is the chatroom id when ``group_kind`` is ``room``\n([R30.49]): the room group has no Member Group row.",
         "properties": {
           "activity_type_id": {
             "format": "uuid",
             "title": "Activity Type Id",
+            "type": "string"
+          },
+          "group_kind": {
+            "default": "member_group",
+            "enum": [
+              "member_group",
+              "room"
+            ],
+            "title": "Group Kind",
             "type": "string"
           },
           "member_group_id": {
@@ -356,6 +366,11 @@
               }
             ],
             "title": "Expires At"
+          },
+          "group_kind": {
+            "default": "member_group",
+            "title": "Group Kind",
+            "type": "string"
           },
           "id": {
             "format": "uuid",
@@ -526,6 +541,11 @@
           "id": {
             "format": "uuid",
             "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "member_group",
+            "title": "Kind",
             "type": "string"
           },
           "name": {

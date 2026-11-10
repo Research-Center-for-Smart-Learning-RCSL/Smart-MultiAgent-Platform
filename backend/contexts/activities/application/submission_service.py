@@ -45,6 +45,7 @@ from contexts.activities.domain.models import (
     ActivitySession,
     ActivitySubmission,
     ActivityType,
+    GroupKind,
     SubjectKind,
     SubmissionForJudging,
     ValidationResult,
@@ -155,6 +156,9 @@ class SubmissionService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        group_kind: GroupKind = GroupKind.MEMBER_GROUP,
+        proposer_is_guest: bool = False,
+        actor_is_guest: bool = False,
     ) -> tuple[ActivitySubmission, dict[str, Any]]:
         """Record an accepted group proposal as this group's submission ([R30.41]).
 
@@ -185,7 +189,9 @@ class SubmissionService:
         FU-4 left open.
         """
         _ensure_payload_valid(activity_type.payload_schema, payload)
-        session = await self._resolve_group_session(activation=activation, member_group_id=member_group_id)
+        session = await self._resolve_group_session(
+            activation=activation, member_group_id=member_group_id, group_kind=group_kind
+        )
         recorded = await self._record(
             activity_type=activity_type,
             session=session,
@@ -196,6 +202,9 @@ class SubmissionService:
             actor_ip=actor_ip,
             request_id=request_id,
             subject_label=group_name,
+            producer_is_guest=proposer_is_guest,
+            # The deciding voter, not the proposer, is this audit row's actor.
+            actor_is_guest=actor_is_guest,
         )
         # After `_record`, not before: it clears the declaration on any session
         # that carried one, and stamping first would have it cleared again.
@@ -251,6 +260,7 @@ class SubmissionService:
         request_id: uuid.UUID | None,
         subject_label: str | None = None,
         producer_is_guest: bool = False,
+        actor_is_guest: bool | None = None,
     ) -> tuple[ActivitySubmission, dict[str, Any]]:
         """Lock, number, validate, insert, echo and audit one submission.
 
@@ -399,8 +409,11 @@ class SubmissionService:
                     "validation_status": validation_status.value,
                 },
                 request_id=request_id,
-                # The producer is the caller, so this tags the actor, not the subject.
-                actor_guest_room_id=chatroom_id if producer_is_guest else None,
+                # Tags the actor, not the subject. On the individual path the
+                # producer is the caller; a group acceptance names its own actor.
+                actor_guest_room_id=chatroom_id
+                if (producer_is_guest if actor_is_guest is None else actor_is_guest)
+                else None,
             ),
         )
 
@@ -617,7 +630,11 @@ class SubmissionService:
         return winner
 
     async def _resolve_group_session(
-        self, *, activation: ActivityActivation, member_group_id: uuid.UUID
+        self,
+        *,
+        activation: ActivityActivation,
+        member_group_id: uuid.UUID,
+        group_kind: GroupKind = GroupKind.MEMBER_GROUP,
     ) -> ActivitySession:
         """This group's session for the round, opening one if none exists.
 
@@ -639,6 +656,7 @@ class SubmissionService:
             chatroom_id=activation.chatroom_id,
             member_group_id=member_group_id,
             activation_id=activation.id,
+            group_kind=group_kind,
         )
         if new_id is not None:
             opened = await self._session_repo.get(new_id)

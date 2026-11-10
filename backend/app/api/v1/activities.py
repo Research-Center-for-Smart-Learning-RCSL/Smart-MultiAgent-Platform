@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Path, Query
 from pydantic import BaseModel, Field
@@ -38,6 +38,7 @@ from contexts.activities.domain.models import (
     ActivitySubmission,
     ActivityType,
     ActivityTypeScope,
+    GroupKind,
     GroupProposalResolution,
     GroupProposalTally,
     Keep,
@@ -315,9 +316,13 @@ class ActivitySubmissionOut(BaseModel):
 
 
 class ActivityGroupProposalIn(BaseModel):
+    """``member_group_id`` is the chatroom id when ``group_kind`` is ``room``
+    ([R30.49]): the room group has no Member Group row."""
+
     member_group_id: uuid.UUID
     activity_type_id: uuid.UUID
     payload: dict[str, Any]
+    group_kind: Literal["member_group", "room"] = "member_group"
 
 
 class ActivityGroupVoteIn(BaseModel):
@@ -351,6 +356,7 @@ class ActivityGroupProposalOut(BaseModel):
     activation_id: uuid.UUID
     activity_type_id: uuid.UUID
     member_group_id: uuid.UUID
+    group_kind: str = "member_group"
     proposer_user_id: uuid.UUID
     payload: dict[str, Any]
     status: str
@@ -376,6 +382,7 @@ class ActivityMemberGroupRefOut(BaseModel):
 
     id: uuid.UUID
     name: str
+    kind: str = "member_group"
 
 
 class ActivityGroupProposalsOut(BaseModel):
@@ -468,6 +475,7 @@ def _proposal_out(tally: GroupProposalTally) -> ActivityGroupProposalOut:
         activation_id=p.activation_id,
         activity_type_id=p.activity_type_id,
         member_group_id=p.member_group_id,
+        group_kind=p.group_kind.value,
         proposer_user_id=p.proposer_user_id,
         payload=p.payload,
         status=p.status.value,
@@ -1271,6 +1279,8 @@ async def create_activity_group_proposal(
         payload=body.payload,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        group_kind=GroupKind(body.group_kind),
+        proposer_is_guest=principal.is_guest,
     )
     await db.commit()
     await _dispatch_proposal(chatroom_id, resolution, opened=True, db=db)
@@ -1303,6 +1313,7 @@ async def vote_on_activity_group_proposal(
         approve=body.approve,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        voter_is_guest=principal.is_guest,
     )
     await db.commit()
     await _dispatch_proposal(chatroom_id, resolution, opened=False, db=db)
@@ -1356,6 +1367,7 @@ async def withdraw_activity_group_proposal(
         caller_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        caller_is_guest=principal.is_guest,
     )
     await db.commit()
     await dispatch_group_proposal("activity.proposal.resolved", tally)
@@ -1392,7 +1404,9 @@ async def list_activity_group_proposals(
     )
     return ActivityGroupProposalsOut(
         items=[_proposal_out(t) for t in view.proposals],
-        eligible_groups=[ActivityMemberGroupRefOut(id=g.id, name=g.name) for g in view.eligible_groups],
+        eligible_groups=[
+            ActivityMemberGroupRefOut(id=g.id, name=g.name, kind=g.kind.value) for g in view.eligible_groups
+        ],
     )
 
 

@@ -140,7 +140,7 @@ class ActivityContextProvider:
             return None
         digests_allowed = await self._digests_allowed(facade)
         labels = await self._labels(rows, resolve_labels)
-        group_labels = await self._group_labels(rows, facade)
+        group_labels = await self._group_labels(rows, facade, chatroom_id=chatroom_id)
         parts = ["[Recent room activity]", _PREAMBLE]
         shown = [r for r in rows if digests_allowed and r.expose_payload_to_agent and r.agent_digest]
         if any(_carries_participant_text(r) for r in shown):
@@ -175,7 +175,7 @@ class ActivityContextProvider:
 
     @staticmethod
     async def _group_labels(
-        rows: Sequence[RecentActivityRow], facade: ActivitiesFacade
+        rows: Sequence[RecentActivityRow], facade: ActivitiesFacade, *, chatroom_id: uuid.UUID
     ) -> Mapping[uuid.UUID, str]:
         """Group names for the group subjects in this window, or empty on failure.
 
@@ -191,7 +191,7 @@ class ActivityContextProvider:
         if not group_ids:
             return {}
         try:
-            return await facade.resolve_member_group_names(group_ids)
+            return await facade.resolve_member_group_names(group_ids, chatroom_id=chatroom_id)
         except Exception:
             _log.warning("activity group-name resolution failed; block keeps bare codes", exc_info=True)
             return {}
@@ -220,7 +220,9 @@ class ActivityContextProvider:
         if group_ids:
             try:
                 async with self._db.begin_nested():
-                    names = await facade.resolve_member_group_names(sorted(group_ids))
+                    names = await facade.resolve_member_group_names(
+                        sorted(group_ids), chatroom_id=chatroom_id
+                    )
             except Exception:
                 _log.warning("activity state group names failed; block keeps bare codes", exc_info=True)
         return render_activity_state(state, group_names=names)
@@ -467,7 +469,9 @@ def _group_ref(group_id: uuid.UUID, names: Mapping[uuid.UUID, str]) -> str:
     return f"{code} {_quoted(name, _GROUP_NAME_MAX)}" if name else code
 
 
-def _activity_line(activation: ActivityActivation, activity_type: ActivityType | None) -> str:
+def _activity_line(
+    activation: ActivityActivation, activity_type: ActivityType | None, *, room_group: bool = False
+) -> str:
     name = _quoted(activity_type.name, _TYPE_NAME_MAX) if activity_type else "(a deleted activity type)"
     try:
         consent = parse_group_config(activity_type.group_config) if activity_type else None
@@ -475,6 +479,12 @@ def _activity_line(activation: ActivityActivation, activity_type: ActivityType |
         consent = None
     if consent is None:
         mode = "individual activity: each participant submits for themselves"
+    elif room_group:
+        mode = (
+            "group activity where the whole room is one group (everyone but the room creator): "
+            f"a proposal is accepted when {consent[0]}/{consent[1]} of the participants pinned "
+            "when it was made approve"
+        )
     else:
         mode = (
             f"group activity: a group's proposal is accepted when {consent[0]}/{consent[1]} "
@@ -539,7 +549,7 @@ def render_activity_state(state: RoomActivityState, *, group_names: Mapping[uuid
     head = [STATE_HEADER, _STATE_PREAMBLE]
     if state.activation is None:
         return "\n".join([*head, STATE_NEVER_RUN])
-    head.append(_activity_line(state.activation, state.activity_type))
+    head.append(_activity_line(state.activation, state.activity_type, room_group=state.room_group))
     if state.activation.status is not ActivationStatus.ACTIVE:
         return "\n".join(head)
     if state.activation.brief:

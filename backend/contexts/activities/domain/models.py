@@ -80,6 +80,18 @@ class VoteChoice(str, enum.Enum):
     REJECT = "reject"
 
 
+class GroupKind(str, enum.Enum):
+    """Which kind of group a group proposal or group session belongs to.
+
+    ``ROOM`` is the room group ([R30.49]): its id is the chatroom id, it exists
+    only while no live Member Group is bound to the room, and its members are the
+    room's participants other than the creator, guests included.
+    """
+
+    MEMBER_GROUP = "member_group"
+    ROOM = "room"
+
+
 class ActivityTypeScope(str, enum.Enum):
     """Who owns an ``ActivityType`` ([R30.02]).
 
@@ -253,6 +265,8 @@ class ActivitySession:
     # ``subject_user_id`` is an anonymous guest's session id rather than a user's
     # (0098); read from the stored ``subject_kind``.
     subject_is_guest: bool = False
+    # Meaningful only on a group session (0115).
+    group_kind: GroupKind = GroupKind.MEMBER_GROUP
 
     @property
     def subject_kind(self) -> SubjectKind:
@@ -393,6 +407,8 @@ class ProposalVote:
     user_id: uuid.UUID
     choice: VoteChoice
     created_at: dt.datetime
+    # ``user_id`` is an anonymous guest's session id (0115).
+    voter_is_guest: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -424,6 +440,10 @@ class GroupProposal:
     expires_at: dt.datetime
     resolved_at: dt.datetime | None = None
     submission_id: uuid.UUID | None = None
+    # ``proposer_user_id`` is an anonymous guest's session id (0115).
+    proposer_is_guest: bool = False
+    # ``ROOM`` when ``member_group_id`` is the chatroom id ([R30.49]).
+    group_kind: GroupKind = GroupKind.MEMBER_GROUP
 
     def may_vote(self, user_id: uuid.UUID) -> bool:
         """Whether this user holds a ballot. Membership of the group today is not
@@ -460,6 +480,7 @@ class MemberGroupRef:
 
     id: uuid.UUID
     name: str
+    kind: GroupKind = GroupKind.MEMBER_GROUP
 
 
 @dataclass(frozen=True, slots=True)
@@ -841,6 +862,8 @@ class RoomActivityState:
     #: participants, room creator excluded; ``None`` when presence is unavailable
     #: or the activity is a group one ([R30.44]).
     connected_progress: ConnectedProgress | None = None
+    #: The room's group work runs as one room group ([R30.49]).
+    room_group: bool = False
 
 
 #: [R30.46] bounds, mirrored by the 0106 CHECKs.
@@ -906,6 +929,7 @@ __all__ = [
     "EndedActivation",
     "FieldCoverage",
     "FieldCoverageCell",
+    "GroupKind",
     "GroupProposal",
     "GroupProposalResolution",
     "GroupProposalTally",

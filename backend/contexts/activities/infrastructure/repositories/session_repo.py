@@ -19,7 +19,13 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.domain.models import ActivitySession, RoundSubject, SessionStatus, SubjectKind
+from contexts.activities.domain.models import (
+    ActivitySession,
+    GroupKind,
+    RoundSubject,
+    SessionStatus,
+    SubjectKind,
+)
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.auth.clients import now
 from shared_kernel.db.rowcount import rowcount
@@ -36,6 +42,7 @@ _SESSION_COLS = (
     t.activity_sessions.c.completed_at,
     t.activity_sessions.c.subject_member_group_id,
     t.activity_sessions.c.subject_kind,
+    t.activity_sessions.c.group_kind,
 )
 
 
@@ -52,6 +59,7 @@ def _row_to_session(row: object) -> ActivitySession:
         completed_at=row.completed_at,  # type: ignore[attr-defined]
         subject_member_group_id=row.subject_member_group_id,  # type: ignore[attr-defined]
         subject_is_guest=row.subject_kind == SubjectKind.GUEST.value,  # type: ignore[attr-defined]
+        group_kind=GroupKind(row.group_kind),  # type: ignore[attr-defined]
     )
 
 
@@ -153,6 +161,7 @@ class ActivitySessionRepository:
         chatroom_id: uuid.UUID,
         member_group_id: uuid.UUID,
         activation_id: uuid.UUID,
+        group_kind: GroupKind = GroupKind.MEMBER_GROUP,
     ) -> uuid.UUID | None:
         """Open a group's session for one round, or ``None`` if a concurrent open won.
 
@@ -170,6 +179,7 @@ class ActivitySessionRepository:
                 subject_member_group_id=member_group_id,
                 activation_id=activation_id,
                 status=SessionStatus.OPEN.value,
+                group_kind=group_kind.value,
             )
             .on_conflict_do_nothing()
             .returning(t.activity_sessions.c.id)

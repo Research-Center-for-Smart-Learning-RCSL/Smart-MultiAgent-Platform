@@ -48,15 +48,14 @@ class PlatformActivityEvents:
         self._types = ActivityTypeRepository(db)
         self._submissions = ActivitySubmissionRepository(db)
 
-    async def connected_progress(
-        self, chatroom_id: uuid.UUID, activation: ActivityActivation
-    ) -> ConnectedProgress | None:
-        """Submission progress among the participants connected now, creator excluded.
+    async def connected_participants(self, chatroom_id: uuid.UUID) -> frozenset[uuid.UUID] | None:
+        """The human participants connected now, room creator excluded.
 
         A participant inside the reconnect grace counts as connected, so a dropped
-        socket does not complete the round in the seconds before it comes back.
+        socket is not dropped from the count in the seconds before it comes back.
         ``None`` when it cannot be stated truthfully: presence unavailable or
-        truncated, or the room unreadable.
+        truncated, or the room unreadable. Shared by the completion wake and the
+        room group's ballot ([R30.49]), which use the same window by rule.
         """
         from contexts.conversation.interfaces.facade import HEADCOUNT_PRESENCE_LIMIT, ConversationFacade
 
@@ -71,7 +70,15 @@ class PlatformActivityEvents:
         reconnecting = await conversation.room_reconnecting_user_ids(chatroom_id)
         if reconnecting is None:
             return None
-        connected = {u for u in (*snapshot.user_ids, *reconnecting) if u != room.created_by_user_id}
+        return frozenset(u for u in (*snapshot.user_ids, *reconnecting) if u != room.created_by_user_id)
+
+    async def connected_progress(
+        self, chatroom_id: uuid.UUID, activation: ActivityActivation
+    ) -> ConnectedProgress | None:
+        """Submission progress among the participants connected now, creator excluded."""
+        connected = await self.connected_participants(chatroom_id)
+        if connected is None:
+            return None
         submitted = await self._submissions.valid_individual_subjects(activation_id=activation.id)
         return ConnectedProgress(connected=len(connected), submitted=len(connected & submitted))
 

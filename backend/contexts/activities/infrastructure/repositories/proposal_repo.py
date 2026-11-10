@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.domain.errors import GroupProposalAlreadyOpen
 from contexts.activities.domain.models import (
+    GroupKind,
     GroupProposal,
     ProposalStateRow,
     ProposalStatus,
@@ -52,7 +53,12 @@ _PROP_COLS = (
     _PROP.c.expires_at,
     _PROP.c.resolved_at,
     _PROP.c.submission_id,
+    _PROP.c.proposer_kind,
+    _PROP.c.group_kind,
 )
+
+_GUEST = "guest"
+_USER = "user"
 
 
 def _voters(raw: Any) -> tuple[uuid.UUID, ...]:
@@ -88,6 +94,8 @@ def _row_to_proposal(row: Any) -> GroupProposal:
         expires_at=row.expires_at,
         resolved_at=row.resolved_at,
         submission_id=row.submission_id,
+        proposer_is_guest=row.proposer_kind == _GUEST,
+        group_kind=GroupKind(row.group_kind),
     )
 
 
@@ -97,6 +105,7 @@ def _row_to_vote(row: Any) -> ProposalVote:
         user_id=row.user_id,
         choice=VoteChoice(row.choice),
         created_at=row.created_at,
+        voter_is_guest=row.voter_kind == _GUEST,
     )
 
 
@@ -116,6 +125,8 @@ class GroupProposalRepository:
         voter_user_ids: Sequence[uuid.UUID],
         required_approvals: int,
         expires_at: dt.datetime,
+        proposer_is_guest: bool = False,
+        group_kind: GroupKind = GroupKind.MEMBER_GROUP,
     ) -> uuid.UUID:
         """Insert an open proposal and return its id.
 
@@ -141,6 +152,8 @@ class GroupProposalRepository:
                     required_approvals=required_approvals,
                     status=ProposalStatus.OPEN.value,
                     expires_at=expires_at,
+                    proposer_kind=_GUEST if proposer_is_guest else _USER,
+                    group_kind=group_kind.value,
                 )
                 .returning(_PROP.c.id)
             )
@@ -417,7 +430,14 @@ class GroupProposalVoteRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def cast(self, *, proposal_id: uuid.UUID, user_id: uuid.UUID, choice: VoteChoice) -> None:
+    async def cast(
+        self,
+        *,
+        proposal_id: uuid.UUID,
+        user_id: uuid.UUID,
+        choice: VoteChoice,
+        voter_is_guest: bool = False,
+    ) -> None:
         """Record one voter's decision, replacing their previous one.
 
         An upsert on the ``(proposal_id, user_id)`` primary key rather than an
@@ -425,7 +445,12 @@ class GroupProposalVoteRepository:
         to their one ballot, and a second row would let a single voter carry the
         proposal on their own.
         """
-        stmt = pg_insert(_VOTE).values(proposal_id=proposal_id, user_id=user_id, choice=choice.value)
+        stmt = pg_insert(_VOTE).values(
+            proposal_id=proposal_id,
+            user_id=user_id,
+            choice=choice.value,
+            voter_kind=_GUEST if voter_is_guest else _USER,
+        )
         await self._db.execute(
             stmt.on_conflict_do_update(
                 index_elements=[_VOTE.c.proposal_id, _VOTE.c.user_id],
@@ -458,12 +483,32 @@ class GroupProposalVoteRepository:
         """
         rows = (
             await self._db.execute(
-                sa.select(_VOTE.c.proposal_id, _VOTE.c.user_id, _VOTE.c.choice, _VOTE.c.created_at)
+                sa.select(
+                    _VOTE.c.proposal_id,
+                    _VOTE.c.user_id,
+                    _VOTE.c.choice,
+                    _VOTE.c.created_at,
+                    _VOTE.c.voter_kind,
+                )
                 .where(_VOTE.c.proposal_id == proposal_id)
                 .order_by(_VOTE.c.created_at, _VOTE.c.user_id)
             )
         ).all()
         return [_row_to_vote(r) for r in rows]
+
+    async def purge_user(self, user_id: uuid.UUID) -> int:
+        """Erase a hard-deleted user's votes and the proposals they made.
+
+        What the ``users`` cascades did before 0115. Guest rows are untouched: a
+        guest id can never equal a user id, and the kind is checked anyway so the
+        purge cannot reach a row it does not describe."""
+        votes = await self._db.execute(
+            _VOTE.delete().where(sa.and_(_VOTE.c.user_id == user_id, _VOTE.c.voter_kind == _USER))
+        )
+        proposals = await self._db.execute(
+            _PROP.delete().where(sa.and_(_PROP.c.proposer_user_id == user_id, _PROP.c.proposer_kind == _USER))
+        )
+        return int(rowcount(votes)) + int(rowcount(proposals))
 
 
 __all__ = ["GroupProposalRepository", "GroupProposalVoteRepository"]

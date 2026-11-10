@@ -29,6 +29,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.application.platform_events import PlatformActivityEvents
 from contexts.activities.application.ports import ActivityActivationRepository
 from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.application.submission_service import SubmissionService
@@ -40,6 +41,8 @@ from contexts.activities.domain.errors import (
     GroupProposalResolved,
     MemberGroupNotBoundToRoom,
     NotAGroupMember,
+    RoomCreatorNotInRoomGroup,
+    RoomGroupBallotUnavailable,
     SubmissionPayloadInvalid,
 )
 from contexts.activities.domain.group_consent import (
@@ -50,6 +53,7 @@ from contexts.activities.domain.group_consent import (
 from contexts.activities.domain.models import (
     ActivationStatus,
     ActivityType,
+    GroupKind,
     GroupProposal,
     GroupProposalResolution,
     GroupProposalTally,
@@ -111,8 +115,13 @@ class GroupProposalService:
         payload: dict[str, Any],
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        group_kind: GroupKind = GroupKind.MEMBER_GROUP,
+        proposer_is_guest: bool = False,
     ) -> GroupProposalResolution:
         """Open a proposal for this group's answer to the live round (AC-5).
+
+        ``group_kind`` ROOM proposes for the room group ([R30.49]), whose id is
+        the chatroom id; its ballot is pinned by ``_pin_room_voters`` instead.
 
         Five gates, in an order chosen so a probe learns the least:
 
@@ -148,12 +157,20 @@ class GroupProposalService:
         if activation is None or activation.activity_type_id != activity_type_id:
             raise ActivityNotActive(str(activity_type_id))
 
-        voters = await self._pin_voters(
-            project_id=project_id,
-            chatroom_id=chatroom_id,
-            member_group_id=member_group_id,
-            proposer_user_id=proposer_user_id,
-        )
+        if group_kind is GroupKind.ROOM:
+            voters = await self._pin_room_voters(
+                project_id=project_id,
+                chatroom_id=chatroom_id,
+                member_group_id=member_group_id,
+                proposer_user_id=proposer_user_id,
+            )
+        else:
+            voters = await self._pin_voters(
+                project_id=project_id,
+                chatroom_id=chatroom_id,
+                member_group_id=member_group_id,
+                proposer_user_id=proposer_user_id,
+            )
 
         errors = payload_errors(activity_type.payload_schema, dict(payload))
         if errors:
@@ -171,22 +188,31 @@ class GroupProposalService:
             voter_user_ids=voters,
             required_approvals=required,
             expires_at=now() + PROPOSAL_TTL,
+            proposer_is_guest=proposer_is_guest,
+            group_kind=group_kind,
         )
         # The proposer's approval is implicit and recorded as a vote row, so the
         # tally is the whole story: a reader never has to add one to a count to
         # account for a person whose position is only implied by the row's
         # existence.
-        await self._votes.cast(proposal_id=proposal_id, user_id=proposer_user_id, choice=VoteChoice.APPROVE)
+        await self._votes.cast(
+            proposal_id=proposal_id,
+            user_id=proposer_user_id,
+            choice=VoteChoice.APPROVE,
+            voter_is_guest=proposer_is_guest,
+        )
         await self._audit(
             action="activity.proposal_created",
             proposal_id=proposal_id,
             actor_user_id=proposer_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            guest_room_id=chatroom_id if proposer_is_guest else None,
             metadata={
                 "chatroom_id": str(chatroom_id),
                 "activation_id": str(activation.id),
                 "member_group_id": str(member_group_id),
+                "group_kind": group_kind.value,
                 "voters": str(len(voters)),
                 "required_approvals": str(required),
             },
@@ -200,7 +226,59 @@ class GroupProposalService:
             actor_user_id=proposer_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            actor_is_guest=proposer_is_guest,
         )
+
+    async def room_group_applies(self, *, project_id: uuid.UUID, chatroom_id: uuid.UUID) -> bool:
+        """Whether this room's group work runs as one room group ([R30.49]).
+
+        It does when the room cannot host a Member Group submission at all: it
+        does not admit member groups, it is owners-only (exclusive, see
+        ``_pin_voters``), or no live Member Group of this project is bound to
+        it. The two sources never coexist in one room, so a participant is
+        never offered both and a round's group answers are all of one kind.
+        """
+        conversation = ConversationFacade(self._db)
+        room = await conversation.get_chatroom(chatroom_id)
+        if room is None:
+            return False
+        if not room.allow_member_groups or room.allow_project_owners_only:
+            return True
+        bound = await conversation.chatroom_member_group_ids(chatroom_id)
+        if not bound:
+            return True
+        live = await TenancyFacade(self._db).live_member_group_ids(list(bound), project_id=project_id)
+        return not live
+
+    async def _pin_room_voters(
+        self,
+        *,
+        project_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        member_group_id: uuid.UUID,
+        proposer_user_id: uuid.UUID,
+    ) -> tuple[uuid.UUID, ...]:
+        """The room group's ballot: everyone connected now but the creator, plus
+        the proposer ([R30.49]).
+
+        Connected uses the completion wake's window, reconnect grace included,
+        so the two never disagree about who is in the room. The creator is the
+        room's teacher and stays out of the group. A guest's id is its guest
+        session id, which is what presence reports for it.
+        """
+        if member_group_id != chatroom_id or not await self.room_group_applies(
+            project_id=project_id, chatroom_id=chatroom_id
+        ):
+            raise MemberGroupNotBoundToRoom(str(member_group_id))
+        room = await ConversationFacade(self._db).get_chatroom(chatroom_id)
+        if room is None:  # pragma: no cover -- read just above in this txn
+            raise MemberGroupNotBoundToRoom(str(member_group_id))
+        if proposer_user_id == room.created_by_user_id:
+            raise RoomCreatorNotInRoomGroup(str(chatroom_id))
+        connected = await PlatformActivityEvents(self._db).connected_participants(chatroom_id)
+        if connected is None:
+            raise RoomGroupBallotUnavailable(str(chatroom_id))
+        return tuple(sorted(connected | {proposer_user_id}))
 
     async def _pin_voters(
         self,
@@ -273,6 +351,7 @@ class GroupProposalService:
         approve: bool,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        voter_is_guest: bool = False,
     ) -> GroupProposalResolution:
         """Record one pinned voter's decision and resolve if it settles the vote.
 
@@ -309,6 +388,7 @@ class GroupProposalService:
             proposal_id=proposal_id,
             user_id=voter_user_id,
             choice=VoteChoice.APPROVE if approve else VoteChoice.REJECT,
+            voter_is_guest=voter_is_guest,
         )
         await self._audit(
             action="activity.proposal_voted",
@@ -316,6 +396,7 @@ class GroupProposalService:
             actor_user_id=voter_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            guest_room_id=chatroom_id if voter_is_guest else None,
             # The choice is NOT recorded here. An audit row is readable by an
             # org admin, and [R30.42] confines the per-person record to the
             # pinned voters and the room creator. That a vote happened is the
@@ -331,6 +412,7 @@ class GroupProposalService:
             actor_user_id=voter_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            actor_is_guest=voter_is_guest,
         )
 
     async def withdraw(
@@ -341,6 +423,7 @@ class GroupProposalService:
         caller_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        caller_is_guest: bool = False,
     ) -> GroupProposalTally:
         """The proposer takes back their own open proposal.
 
@@ -368,6 +451,7 @@ class GroupProposalService:
                 actor_user_id=caller_user_id,
                 actor_ip=actor_ip,
                 request_id=request_id,
+                guest_room_id=chatroom_id if caller_is_guest else None,
                 metadata={
                     "chatroom_id": str(chatroom_id),
                     "member_group_id": str(proposal.member_group_id),
@@ -386,6 +470,7 @@ class GroupProposalService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
+        actor_is_guest: bool = False,
     ) -> GroupProposalResolution:
         """Accept, reject, or leave open, from the votes cast so far.
 
@@ -404,6 +489,7 @@ class GroupProposalService:
                 actor_user_id=actor_user_id,
                 actor_ip=actor_ip,
                 request_id=request_id,
+                actor_is_guest=actor_is_guest,
             )
         if is_unreachable(approvals=approvals, undecided=undecided, required=proposal.required_approvals):
             transitioned = await self._proposals.resolve(proposal.id, status=ProposalStatus.REJECTED)
@@ -414,6 +500,7 @@ class GroupProposalService:
                     actor_user_id=actor_user_id,
                     actor_ip=actor_ip,
                     request_id=request_id,
+                    guest_room_id=proposal.chatroom_id if actor_is_guest else None,
                     metadata={
                         "chatroom_id": str(proposal.chatroom_id),
                         "member_group_id": str(proposal.member_group_id),
@@ -437,6 +524,7 @@ class GroupProposalService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
+        actor_is_guest: bool = False,
     ) -> GroupProposalResolution:
         """Turn an approved proposal into the group's submission (AC-10).
 
@@ -475,17 +563,20 @@ class GroupProposalService:
             activity_type_id=proposal.activity_type_id,
             project_id=project_id,
         )
-        group_names = await TenancyFacade(self._db).member_group_names([proposal.member_group_id])
+        group_name = await self._group_name(proposal)
         submission, signal_payload = await self._submissions.submit_for_group(
             activity_type=activity_type,
             activation=activation,
             member_group_id=proposal.member_group_id,
-            group_name=group_names.get(proposal.member_group_id),
+            group_name=group_name,
             proposer_user_id=proposal.proposer_user_id,
             payload=proposal.payload,
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            group_kind=proposal.group_kind,
+            proposer_is_guest=proposal.proposer_is_guest,
+            actor_is_guest=actor_is_guest,
         )
         await self._proposals.attach_submission(proposal.id, submission_id=submission.id)
         await self._audit(
@@ -494,6 +585,7 @@ class GroupProposalService:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            guest_room_id=proposal.chatroom_id if actor_is_guest else None,
             metadata={
                 "chatroom_id": str(proposal.chatroom_id),
                 "member_group_id": str(proposal.member_group_id),
@@ -507,6 +599,10 @@ class GroupProposalService:
             submission=submission,
             signal_payload=signal_payload,
         )
+
+    async def purge_user_rows(self, user_id: uuid.UUID) -> int:
+        """A hard-deleted user's votes and proposals; caller owns commit."""
+        return await self._votes.purge_user(user_id)
 
     async def expire_due_now(self, *, limit: int) -> Sequence[tuple[uuid.UUID, uuid.UUID, uuid.UUID]]:
         """Expire proposals past their deadline (the worker sweep).
@@ -550,7 +646,18 @@ class GroupProposalService:
 
         Votes are attached only for a caller entitled to them, by the same rule
         the single read uses -- so a listing can never be the looser surface.
+
+        In a room-group room ([R30.49]) the room itself is the only group: every
+        participant but the creator may propose for it, the creator sees it, and
+        Member Groups are not consulted.
         """
+        if await self.room_group_applies(project_id=project_id, chatroom_id=chatroom_id):
+            return await self._list_room_round(
+                chatroom_id=chatroom_id,
+                activation_id=activation_id,
+                caller_user_id=caller_user_id,
+                caller_is_room_creator=caller_is_room_creator,
+            )
         tenancy = TenancyFacade(self._db)
         bound = await ConversationFacade(self._db).chatroom_member_group_ids(chatroom_id)
         live_bound = await tenancy.live_member_group_ids(list(bound), project_id=project_id)
@@ -587,6 +694,42 @@ class GroupProposalService:
                     key=lambda g: (g.name, str(g.id)),
                 )
             ),
+        )
+
+    async def _list_room_round(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        activation_id: uuid.UUID,
+        caller_user_id: uuid.UUID,
+        caller_is_room_creator: bool,
+    ) -> GroupRoundView:
+        room = await ConversationFacade(self._db).get_chatroom(chatroom_id)
+        if room is None:
+            return GroupRoundView(proposals=(), eligible_groups=())
+        proposals = await self._proposals.list_open_for_groups(
+            chatroom_id=chatroom_id,
+            activation_id=activation_id,
+            member_group_ids=[chatroom_id],
+        )
+        return GroupRoundView(
+            proposals=tuple(
+                [
+                    await self._tally(
+                        p.id,
+                        include_votes_for=caller_user_id,
+                        caller_is_room_creator=caller_is_room_creator,
+                        proposal=p,
+                    )
+                    for p in proposals
+                    # A ROOM-kind filter as well as the id: a Member Group can
+                    # never share a chatroom's uuid, but the kind is the fact.
+                    if p.group_kind is GroupKind.ROOM
+                ]
+            ),
+            eligible_groups=()
+            if caller_is_room_creator
+            else (MemberGroupRef(id=chatroom_id, name=room.name, kind=GroupKind.ROOM),),
         )
 
     async def get_tally(
@@ -634,6 +777,13 @@ class GroupProposalService:
             raise GroupProposalNotFound(str(proposal_id))
         return proposal
 
+    async def _group_name(self, proposal: GroupProposal) -> str | None:
+        if proposal.group_kind is GroupKind.ROOM:
+            room = await ConversationFacade(self._db).get_chatroom(proposal.chatroom_id)
+            return room.name if room is not None else None
+        names = await TenancyFacade(self._db).member_group_names([proposal.member_group_id])
+        return names.get(proposal.member_group_id)
+
     async def _tally(
         self,
         proposal_id: uuid.UUID,
@@ -680,18 +830,21 @@ class GroupProposalService:
         actor_ip: str | None,
         request_id: uuid.UUID | None,
         metadata: dict[str, str],
+        guest_room_id: uuid.UUID | None = None,
     ) -> None:
         """Emit one proposal audit event on the caller's transaction.
 
         No payload content ever enters this metadata (§7 of the dossier). The
         answer a group agreed on lives in the submission row; an audit trail
-        readable by an org admin is not where it belongs.
+        readable by an org admin is not where it belongs. ``guest_room_id`` is
+        set when the actor is a guest, whose id names no user.
         """
         await audit.emit(
             self._db,
             audit.AuditEvent(
                 action=action,
                 actor_user_id=actor_user_id,
+                actor_guest_room_id=guest_room_id,
                 actor_ip=actor_ip,
                 resource_type="activity_group_proposal",
                 resource_id=proposal_id,

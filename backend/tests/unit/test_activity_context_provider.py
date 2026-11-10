@@ -918,6 +918,25 @@ class TestActivityStateRendering:
         assert f"- {g3}: proposal expired at" in text
         assert f"- {g3}: submitted 2 times, latest at {_ENDED.isoformat()}." in text
 
+    def test_a_room_group_activity_says_the_room_is_one_group(self) -> None:
+        """AC-9 (CRAT lab trial fixes): the room group's rows use the g: code of
+        the chatroom id with the room name, and the mode line names the room."""
+        room = uuid.uuid4()
+        state = RoomActivityState(
+            activation=_activation(),
+            activity_type=_activity_type(group_config=_GROUP_TYPE),
+            open_proposals=(_proposal(room, approvals=1, rejections=0, undecided=2),),
+            submitted_groups=(GroupSubmissionState(room, submissions=1, last_submitted_at=_ENDED),),
+            room_group=True,
+        )
+        text = render_activity_state(state, group_names={room: "CRAT lab"})
+
+        assert "the whole room is one group (everyone but the room creator)" in text
+        assert "of its pinned members approve" not in text
+        code = group_subject_code(room)
+        assert f'- {code} "CRAT lab": 1 approve, 0 reject, 2 undecided' in text
+        assert f'- {code} "CRAT lab": submitted 1 time' in text
+
     def test_rows_past_the_row_cap_are_dropped_and_counted(self) -> None:
         groups = [uuid.uuid4() for _ in range(STATE_MAX_GROUP_ROWS + 5)]
         state = RoomActivityState(
@@ -982,11 +1001,12 @@ class TestActivityStateProvider:
         facade = MagicMock()
         facade.room_activity_state = AsyncMock(return_value=state)
         facade.resolve_member_group_names = AsyncMock(return_value={_G1: "Blue"})
+        room_id = uuid.uuid4()
         with patch(_FACADE, return_value=facade):
-            text = await ActivityContextProvider(MagicMock()).state(chatroom_id=uuid.uuid4())
+            text = await ActivityContextProvider(MagicMock()).state(chatroom_id=room_id)
 
         assert f'{group_subject_code(_G1)} "Blue"' in text
-        facade.resolve_member_group_names.assert_awaited_once_with([_G1])
+        facade.resolve_member_group_names.assert_awaited_once_with([_G1], chatroom_id=room_id)
 
     async def test_a_failed_name_lookup_keeps_bare_codes(self) -> None:
         state = RoomActivityState(

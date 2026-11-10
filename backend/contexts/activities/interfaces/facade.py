@@ -56,6 +56,7 @@ from contexts.activities.domain.models import (
     AttemptSummary,
     EndedActivation,
     FieldCoverage,
+    GroupKind,
     GroupProposalResolution,
     GroupProposalTally,
     GroupRoundView,
@@ -557,9 +558,18 @@ class ActivitiesFacade:
         )
         submitted = await ActivitySubmissionRepository(self._db).submitted_groups(activation_id=current.id)
         progress = None
+        room_group = False
         if is_individual_type(activity_type):
             progress = await PlatformActivityEvents(self._db).connected_progress(chatroom_id, current)
+        else:
+            from contexts.conversation.interfaces.facade import ConversationFacade
+
+            project_id = await ConversationFacade(self._db).project_id_for_chatroom(chatroom_id)
+            room_group = project_id is not None and await self._proposals.room_group_applies(
+                project_id=project_id, chatroom_id=chatroom_id
+            )
         return RoomActivityState(
+            room_group=room_group,
             activation=current,
             activity_type=activity_type,
             open_proposals=tuple(p for p in proposals if p.status is ProposalStatus.OPEN),
@@ -813,7 +823,10 @@ class ActivitiesFacade:
     async def purge_user_activity_rows(self, user_id: uuid.UUID) -> tuple[int, int]:
         """Erase a hard-deleted user's sessions and produced submissions,
         ``(sessions, produced)`` -- what the ``users`` cascades did before 0098.
-        Caller owns commit and runs this before deleting the ``users`` row."""
+        Caller owns commit and runs this before deleting the ``users`` row.
+        Their group proposals and votes go first, as the 0115-dropped cascades
+        did: a proposal may point at a submission the session purge removes."""
+        await self._proposals.purge_user_rows(user_id)
         return await self._sessions.purge_user_rows(user_id)
 
     async def get_session_for_round(
@@ -857,6 +870,8 @@ class ActivitiesFacade:
         payload: dict[str, Any],
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        group_kind: GroupKind = GroupKind.MEMBER_GROUP,
+        proposer_is_guest: bool = False,
     ) -> GroupProposalResolution:
         """Open a group's proposal for the live round (AC-5).
 
@@ -874,6 +889,8 @@ class ActivitiesFacade:
             payload=payload,
             actor_ip=actor_ip,
             request_id=request_id,
+            group_kind=group_kind,
+            proposer_is_guest=proposer_is_guest,
         )
 
     async def vote_on_group_proposal(
@@ -886,6 +903,7 @@ class ActivitiesFacade:
         approve: bool,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        voter_is_guest: bool = False,
     ) -> GroupProposalResolution:
         """Record one pinned voter's decision; the result says whether it settled
         the vote and, on acceptance, carries the submission and its reactive-rules
@@ -898,6 +916,7 @@ class ActivitiesFacade:
             approve=approve,
             actor_ip=actor_ip,
             request_id=request_id,
+            voter_is_guest=voter_is_guest,
         )
 
     async def withdraw_group_proposal(
@@ -908,6 +927,7 @@ class ActivitiesFacade:
         caller_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        caller_is_guest: bool = False,
     ) -> GroupProposalTally:
         return await self._proposals.withdraw(
             chatroom_id=chatroom_id,
@@ -915,6 +935,7 @@ class ActivitiesFacade:
             caller_user_id=caller_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            caller_is_guest=caller_is_guest,
         )
 
     async def list_group_proposals(
@@ -1074,7 +1095,9 @@ class ActivitiesFacade:
             chatroom_id=chatroom_id, session_id=session_id, subject_user_id=subject_user_id
         )
 
-    async def resolve_member_group_names(self, group_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+    async def resolve_member_group_names(
+        self, group_ids: Sequence[uuid.UUID], *, chatroom_id: uuid.UUID | None = None
+    ) -> dict[uuid.UUID, str]:
         """Group id -> group name, for the context block's legend ([R30.43]).
 
         Read through ``TenancyFacade`` rather than by joining ``member_groups``:
@@ -1086,10 +1109,21 @@ class ActivitiesFacade:
 
         Imported inside the method so the tenancy context stays off this module's
         import graph until a room actually has a group subject.
+
+        With ``chatroom_id``, that room's own id resolves to the room's name: it
+        is the room group's id ([R30.49]) and names no Member Group.
         """
+        from contexts.conversation.interfaces.facade import ConversationFacade
         from contexts.tenancy.interfaces.facade import TenancyFacade
 
-        return await TenancyFacade(self._db).member_group_names(group_ids)
+        names = dict(
+            await TenancyFacade(self._db).member_group_names([g for g in group_ids if g != chatroom_id])
+        )
+        if chatroom_id is not None and chatroom_id in group_ids:
+            room = await ConversationFacade(self._db).get_chatroom(chatroom_id)
+            if room is not None:
+                names[chatroom_id] = room.name
+        return names
 
     async def list_recent_activity(self, chatroom_id: uuid.UUID, limit: int) -> Sequence[RecentActivityRow]:
         """Bounded, most-recent-first activity for the observer context provider

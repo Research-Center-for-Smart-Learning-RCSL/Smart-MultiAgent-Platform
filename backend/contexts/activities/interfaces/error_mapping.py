@@ -145,6 +145,16 @@ _MAP: ErrorMap = {
         403,
         "That member group is not available in this chatroom",
     ),
+    errors.RoomCreatorNotInRoomGroup: (
+        "activities/room-creator-not-in-room-group",
+        403,
+        "The room creator facilitates the room group and cannot propose or vote in it",
+    ),
+    errors.RoomGroupBallotUnavailable: (
+        "activities/room-group-ballot-unavailable",
+        503,
+        "Could not tell who is in the room right now; try again in a moment",
+    ),
 }
 
 
