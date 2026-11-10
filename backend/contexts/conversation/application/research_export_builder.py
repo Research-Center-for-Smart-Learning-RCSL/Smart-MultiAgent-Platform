@@ -7,9 +7,10 @@ Data is received as typed dicts from the worker task, which queries through
 the proper facades. This module never imports from another context's
 infrastructure layer.
 
-Bundle layout (manifest ``schema_version`` 3,
+Bundle layout (manifest ``schema_version`` 4,
 docs/tasks/2026-11-08-research-data-integrity/spec.md section 5, plus
-``alerts.csv`` from docs/tasks/2026-11-09-classroom-agent-collaboration):
+``alerts.csv`` from docs/tasks/2026-11-09-classroom-agent-collaboration and the
+round columns from docs/tasks/2026-11-10-crat-lab-trial-fixes):
 ``submissions/<type_key>.csv`` per activity type, ``alerts.csv``, ``analyst_notices.csv``,
 ``observations.json``, ``transcripts.json`` and ``manifest.json``. People, groups, rooms and the
 workspace appear only as short codes, never as full ids.
@@ -32,6 +33,7 @@ from contexts.activities.domain.models import FILLED_FIELDS_SUB_SCORE
 from contexts.activities.domain.subject_code import (
     group_subject_code,
     room_code,
+    round_code,
     subject_code,
     workspace_code,
 )
@@ -40,13 +42,16 @@ from shared_kernel.auth.clients import now
 from shared_kernel.storage import export_key, get_minio_client
 
 _EXPORT_PUT_TIMEOUT_SECONDS = 120
-SCHEMA_VERSION: Final = 3
+SCHEMA_VERSION: Final = 4
 # Excel reads a CSV as the system code page unless it starts with a BOM.
 _BOM: Final = "\ufeff"
 _LEADING_COLUMNS: Final = (
     "subject_code",
     "subject_kind",
     "room_code",
+    "round_code",
+    "round_started_at",
+    "round_brief",
     "type_version",
     "attempt_no",
     "is_valid",
@@ -74,6 +79,10 @@ _MANIFEST_NOTES: Final = (
     "A CSV text cell starting with =, +, -, @, a tab or a carriage return is prefixed "
     "with an apostrophe so a spreadsheet does not run it as a formula; strip it before "
     "parsing such a value as a number.",
+    "round_code names the activity round (one start to end of the activity) a submission "
+    "was answered under, round_started_at is when that round started, and round_brief is "
+    "the text shown on the activity panel for it, such as the puzzle. All three are empty "
+    "for a submission made before rounds were recorded.",
     "type_version is the activity type's version when the submission was made. It reads "
     "unknown for a submission made before versions were recorded, under a type that had "
     "already been edited.",
@@ -162,6 +171,9 @@ class SubmissionRow:
     type_version: int | None = None
     judge_status: str | None = None
     judge_scores: dict[str, Any] | None = None
+    activation_id: uuid.UUID | None = None
+    round_started_at: datetime | None = None
+    round_brief: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -467,6 +479,9 @@ class ResearchExportBuilder:
                     _cell(code),
                     kind,
                     rooms[row.chatroom_id],
+                    round_code(row.activation_id) if row.activation_id else None,
+                    _iso(row.round_started_at),
+                    _cell(row.round_brief),
                     _UNKNOWN_VERSION if row.type_version is None else row.type_version,
                     row.attempt_no,
                     row.is_valid,

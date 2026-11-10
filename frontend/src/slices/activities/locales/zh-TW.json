@@ -9,6 +9,8 @@
       "active": "進行中的活動",
       "selectType": "選擇活動",
       "startForRoom": "在聊天室開始",
+      "briefLabel": "本回合說明（選填，所有人都看得到）",
+      "briefPlaceholder": "例如本回合的題目，不要寫答案。",
       "markDone": "我完成了",
       "markDoneUndo": "繼續作答",
       "progress": "{completed} 人已完成，{working} 人作答中",

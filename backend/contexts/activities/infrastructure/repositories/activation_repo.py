@@ -26,6 +26,7 @@ _ACTIVATION_COLS = (
     t.activity_activations.c.time_limit_minutes,
     t.activity_activations.c.deadline_at,
     t.activity_activations.c.completion_notified_at,
+    t.activity_activations.c.brief,
 )
 
 
@@ -42,6 +43,7 @@ def _row_to_activation(row: object) -> ActivityActivation:
         time_limit_minutes=row.time_limit_minutes,  # type: ignore[attr-defined]
         deadline_at=row.deadline_at,  # type: ignore[attr-defined]
         completion_notified_at=row.completion_notified_at,  # type: ignore[attr-defined]
+        brief=row.brief,  # type: ignore[attr-defined]
     )
 
 
@@ -111,6 +113,7 @@ class ActivationRepository:
         started_by_user_id: uuid.UUID,
         started_by_agent_id: uuid.UUID | None = None,
         time_limit_minutes: int | None = None,
+        brief: str | None = None,
     ) -> uuid.UUID | None:
         # The deadline is computed in SQL from the same now() that fills
         # created_at, so the two cannot disagree by the round trip.
@@ -129,6 +132,7 @@ class ActivationRepository:
                 status=ActivationStatus.ACTIVE.value,
                 time_limit_minutes=time_limit_minutes,
                 deadline_at=deadline,
+                brief=brief,
             )
             .on_conflict_do_nothing()
             .returning(t.activity_activations.c.id)

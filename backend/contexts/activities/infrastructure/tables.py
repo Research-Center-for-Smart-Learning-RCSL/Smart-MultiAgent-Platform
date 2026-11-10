@@ -175,6 +175,9 @@ activity_activations = sa.Table(
     # wins, so a second sweep or submission cannot wake the teacher again.
     sa.Column("deadline_notified_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("completion_notified_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # Round brief (0114): class-visible plain text fixed at start, at most 200
+    # characters by a CHECK; normalised by `domain.round_brief`.
+    sa.Column("brief", sa.Text, nullable=True),
 )
 
 activity_submissions = sa.Table(

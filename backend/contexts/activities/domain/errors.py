@@ -132,6 +132,14 @@ class CreativityScoringInvalid(ActivitiesError):
     code = "activities/creativity-scoring-invalid"
 
 
+class RoundBriefInvalid(ActivitiesError):
+    """A round brief is too long, has too many lines, or carries control
+    characters (422). The message is safe to show the caller: it names the rule,
+    never the text."""
+
+    code = "activities/round-brief-invalid"
+
+
 class ActivityTypeNotGroupSubmittable(ActivitiesError):
     """A group proposal was made against a type carrying no ``group_config`` (409).
 

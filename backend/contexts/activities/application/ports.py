@@ -77,6 +77,7 @@ class ActivityActivationRepository(Protocol):
         started_by_user_id: uuid.UUID,
         started_by_agent_id: uuid.UUID | None = None,
         time_limit_minutes: int | None = None,
+        brief: str | None = None,
     ) -> uuid.UUID | None: ...
 
     async def end(self, activation_id: uuid.UUID) -> bool: ...

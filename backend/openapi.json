@@ -60,6 +60,17 @@
             "title": "Activity Type Id",
             "type": "string"
           },
+          "brief": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brief"
+          },
           "chatroom_id": {
             "format": "uuid",
             "title": "Chatroom Id",
@@ -184,6 +195,18 @@
             "format": "uuid",
             "title": "Activity Type Id",
             "type": "string"
+          },
+          "brief": {
+            "anyOf": [
+              {
+                "maxLength": 400,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brief"
           }
         },
         "required": [

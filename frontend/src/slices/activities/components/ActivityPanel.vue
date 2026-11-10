@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiError } from '@shared/errors'
-import { SButton, SDraftDisclosureChip, SEmptyState, SLoadingSpinner, SSelect } from '@shared/ui'
+import { SButton, SDraftDisclosureChip, SEmptyState, SLoadingSpinner, SSelect, STextarea } from '@shared/ui'
 import { useSessionStore } from '@shared/stores/session'
 import { isGuestSession } from '@shared/transport'
 import {
@@ -51,6 +51,9 @@ const canDeclareDone = computed(() => !!session.me?.id || isGuestSession.value)
 const store = useActivitiesStore()
 const types = ref<ActivityType[]>([])
 const selectedTypeId = ref<string | null>(null)
+// [R30.21]: optional, fixed for the round; the server owns the full rule.
+const BRIEF_MAX = 200
+const briefDraft = ref('')
 const loading = ref(false)
 const actionPending = ref(false)
 const errorMessage = ref<string | null>(null)
@@ -157,10 +160,11 @@ function onHostDraft(payload: unknown): void {
   if (key) emit('draft', key, payload)
 }
 
-// Any settled proposal can be put away for a new one. One activation can span
-// several rounds (the CRAT pack runs all of its rounds in one), so an accepted
-// answer closes the round, not the activity; the card labels that button as the
-// next round's so it is not read as a second try at the same one.
+// Any settled proposal can be put away for a new one. A teacher may still run
+// several rounds in one activation (the CRAT pack now starts one per puzzle, but
+// a hand-run class need not), so an accepted answer closes the round, not the
+// activity; the card labels that button as the next round's so it is not read as
+// a second try at the same one.
 const canProposeAgain = computed(() => {
   const shown = group.visibleProposal.value
   return !!shown && !isProposalOpen(shown.status)
@@ -269,7 +273,15 @@ async function startForRoom(): Promise<void> {
   actionPending.value = true
   errorMessage.value = null
   try {
-    store.setActivation(props.chatroomId, await startActivation(props.chatroomId, { activity_type_id: selectedTypeId.value }))
+    const brief = briefDraft.value.trim()
+    store.setActivation(
+      props.chatroomId,
+      await startActivation(props.chatroomId, {
+        activity_type_id: selectedTypeId.value,
+        ...(brief ? { brief } : {}),
+      }),
+    )
+    briefDraft.value = ''
   } catch (err) {
     errorMessage.value = policyRefusalMessage(err) ?? (
       err instanceof ApiError ? err.message : t('activities.panel.startFailed')
@@ -389,6 +401,14 @@ onBeforeUnmount(() => {
       <p class="activity-panel__name">
         {{ activeType?.name ?? t('activities.panel.active') }}
       </p>
+      <!-- Agent-written text: interpolated, never v-html. -->
+      <p
+        v-if="activation.brief"
+        class="activity-panel__brief"
+        data-testid="activity-brief"
+      >
+        {{ activation.brief }}
+      </p>
       <ActivityCountdown
         v-if="activation.deadlineAt"
         :deadline-at="activation.deadlineAt"
@@ -473,7 +493,10 @@ onBeforeUnmount(() => {
             :placeholder="t('activities.group.selectGroup')"
             :disabled="group.pending.value"
           />
+          <!-- Keyed on the round so a new puzzle always starts empty, even when
+               end and start arrive in one turn and the type is unchanged. -->
           <SchemaForm
+            :key="activation.id"
             :schema="activeType.payload_schema"
             :submitting="group.pending.value"
             :disabled="!selectedGroupId"
@@ -489,6 +512,7 @@ onBeforeUnmount(() => {
              the toggle has to follow or it shows the wrong label and costs the
              participant two clicks to re-declare. -->
         <ActivityHost
+          :key="activation.id"
           :chatroom-id="chatroomId"
           :activity-type="activeType"
           :session-id="null"
@@ -523,6 +547,20 @@ onBeforeUnmount(() => {
         :placeholder="t('activities.panel.selectType')"
         :disabled="loading || !projectId"
       />
+      <label
+        class="activity-panel__brief-label"
+        for="activity-panel-brief"
+      >
+        {{ t('activities.panel.briefLabel') }}
+      </label>
+      <STextarea
+        id="activity-panel-brief"
+        v-model="briefDraft"
+        :rows="2"
+        :maxlength="BRIEF_MAX"
+        :placeholder="t('activities.panel.briefPlaceholder')"
+        :disabled="loading || !projectId"
+      />
       <SButton
         variant="primary"
         :loading="actionPending"
@@ -555,6 +593,15 @@ onBeforeUnmount(() => {
 .activity-panel__name {
   margin: 0;
   font-weight: var(--weight-semibold);
+}
+.activity-panel__brief {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.activity-panel__brief-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
 }
 .activity-panel__draft-chip {
   align-self: flex-start;

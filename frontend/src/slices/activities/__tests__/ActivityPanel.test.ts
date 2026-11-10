@@ -427,6 +427,71 @@ describe('ActivityPanel — platform policy refusal (AC-14)', () => {
   })
 })
 
+describe('ActivityPanel — round brief (docs/tasks/2026-11-10-crat-lab-trial-fixes)', () => {
+  it('shows the brief as plain text at the top of the panel (AC-2)', async () => {
+    getActiveActivationMock.mockResolvedValue(
+      activeActivation({ brief: '水 火 山\n<b>not bold</b>' }),
+    )
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+
+    const brief = wrapper.find('[data-testid="activity-brief"]')
+    expect(brief.text()).toContain('水 火 山')
+    expect(brief.text()).toContain('<b>not bold</b>')
+    expect(brief.find('b').exists()).toBe(false)
+  })
+
+  it('shows no brief element when the round has none', async () => {
+    getActiveActivationMock.mockResolvedValue(activeActivation())
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="activity-brief"]').exists()).toBe(false)
+  })
+
+  it('sends the creator brief with the start, trimmed, and omits a blank one', async () => {
+    getActiveActivationMock.mockResolvedValue(null)
+    listActivityTypesMock.mockResolvedValue([publicType()])
+    startActivationMock.mockResolvedValue(activeActivation({ brief: '水 火 山' }))
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: true },
+    })
+    await flushPromises()
+    await wrapper.findAll('select')[0]?.setValue('at_1')
+    await wrapper.find('textarea').setValue('  水 火 山  ')
+    await wrapper.findAll('button').find((b) => b.text().includes('startForRoom'))?.trigger('click')
+    await flushPromises()
+
+    expect(startActivationMock).toHaveBeenCalledWith('c1', { activity_type_id: 'at_1', brief: '水 火 山' })
+    expect(wrapper.find('[data-testid="activity-brief"]').text()).toBe('水 火 山')
+  })
+
+  it('starts an empty worksheet when the next round of the same type begins (AC-6)', async () => {
+    // The same type object for both rounds: a fresh schema object would reset the
+    // form by itself and hide a missing per-round key.
+    const sharedType = publicType()
+    getActiveActivationMock.mockResolvedValue(activeActivation({ activity_type: sharedType }))
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+    const input = wrapper.find('form input, form textarea')
+    await input.setValue('first answer')
+
+    const store = useActivitiesStore()
+    store.clearActivation('c1', 'act_1')
+    store.setActivation('c1', activeActivation({ id: 'act_2', brief: '金 木', activity_type: sharedType }) as never)
+    await flushPromises()
+
+    const fresh = wrapper.find('form input, form textarea').element as HTMLInputElement
+    expect(fresh.value).toBe('')
+  })
+})
+
 describe('ActivityPanel — participant surface (Q-1, AC-2)', () => {
   it('renders participant surface when listActivityTypes rejects', async () => {
     getActiveActivationMock.mockResolvedValue(activeActivation())

@@ -285,6 +285,8 @@ class ActivityActivation:
     deadline_at: dt.datetime | None = None
     # When the all-submitted wake was claimed ([R15.28]); None until then.
     completion_notified_at: dt.datetime | None = None
+    # Class-visible round brief fixed at start ([R30.21]); see `domain.round_brief`.
+    brief: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,12 +307,14 @@ class ActivationNotice:
 class ActivityActivationStartResult:
     """The activation a start returned, and the notice it wrote.
 
-    ``notice`` is ``None`` when the start returned an already running activation
-    of the same type: nothing began, so the room is told nothing.
+    ``notice`` is ``None`` and ``already_running`` is true when the start
+    returned an already running activation of the same type: nothing began, so
+    the room is told nothing and the requested brief was not applied.
     """
 
     activation: ActivityActivation
     notice: ActivationNotice | None = None
+    already_running: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -783,6 +787,11 @@ class ResearchExportSubmission:
     #: Both ``None`` for a type without creativity scoring.
     judge_status: str | None = None
     judge_scores: dict[str, Any] | None = None
+    #: The round the submission was answered under ([R33.10]); all ``None`` for
+    #: a pre-0077 session, which has no activation.
+    activation_id: uuid.UUID | None = None
+    round_started_at: dt.datetime | None = None
+    round_brief: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -141,6 +141,7 @@ async def dispatch_activation_started(
             # countdown would wait for the next full read ([R30.46]).
             "time_limit_minutes": activation.time_limit_minutes,
             "deadline_at": activation.deadline_at.isoformat() if activation.deadline_at else None,
+            "brief": activation.brief,
         }
         if initiating_agent is not None:
             payload["started_by_agent_id"] = str(initiating_agent.agent_id)

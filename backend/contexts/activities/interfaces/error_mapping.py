@@ -68,6 +68,11 @@ _MAP: ErrorMap = {
         422,
         "The creativity scoring configuration is invalid",
     ),
+    errors.RoundBriefInvalid: (
+        "activities/round-brief-invalid",
+        422,
+        "The round brief is invalid",
+    ),
     errors.SubmissionPayloadInvalid: (
         "activities/submission-payload-invalid",
         422,

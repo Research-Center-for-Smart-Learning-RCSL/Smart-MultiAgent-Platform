@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -65,6 +66,43 @@ async def test_end_broadcasts_only_when_the_activation_transitions(
 
 
 _NOW = dt.datetime(2026, 8, 17, tzinfo=dt.UTC)
+
+
+async def test_the_start_route_passes_the_brief_and_refuses_an_oversized_body() -> None:
+    """AC-2: the body bound is a cheap first cut; the service owns the full rule."""
+    from pydantic import ValidationError
+
+    assert activities.ActivityActivationStartIn(activity_type_id=uuid.uuid4(), brief="水").brief == "水"
+    with pytest.raises(ValidationError):
+        activities.ActivityActivationStartIn(activity_type_id=uuid.uuid4(), brief="x" * 401)
+
+
+async def test_the_start_route_hands_the_brief_to_the_facade(monkeypatch: pytest.MonkeyPatch) -> None:
+    from contexts.activities.domain.models import ActivityActivationStartResult
+
+    room = uuid.uuid4()
+    activation = replace(_activation(room, started_by=uuid.uuid4()), brief="水 火 山")
+    facade = MagicMock()
+    facade.start_activation = AsyncMock(return_value=ActivityActivationStartResult(activation=activation))
+    monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
+    monkeypatch.setattr(activities, "resolve_room_access", AsyncMock(return_value=MagicMock()))
+    monkeypatch.setattr(activities, "ensure_room_creator", MagicMock())
+    monkeypatch.setattr(activities, "record_alert_reaction", AsyncMock())
+    monkeypatch.setattr(activities, "_resolve_activation_type", AsyncMock(return_value=None))
+    monkeypatch.setattr(activities, "dispatch_activation_started", AsyncMock())
+
+    out = await activities.start_activity_activation(
+        body=activities.ActivityActivationStartIn(
+            activity_type_id=activation.activity_type_id, brief="水 火 山"
+        ),
+        chatroom_id=room,
+        ctx=SimpleNamespace(actor_ip=None, request_id=None),
+        principal=SimpleNamespace(user_id=uuid.uuid4()),
+        db=MagicMock(commit=AsyncMock()),
+    )
+
+    assert facade.start_activation.await_args.kwargs["brief"] == "水 火 山"
+    assert out.brief == "水 火 山"
 
 
 def _activation(chatroom_id: uuid.UUID, started_by: uuid.UUID) -> ActivityActivation:
@@ -303,6 +341,17 @@ class TestActivationStartedBroadcast:
         assert payload["started_by_agent_name"] == "TA"
         # The granting teacher is still the round's starting user.
         assert payload["started_by"] == str(activation.started_by_user_id)
+
+    async def test_the_round_brief_rides_the_broadcast(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """AC-2 of docs/tasks/2026-11-10-crat-lab-trial-fixes ([R30.26])."""
+        activation = replace(_activation(uuid.uuid4(), started_by=uuid.uuid4()), brief="水 火 山")
+        publisher = self._capture(monkeypatch)
+
+        await broadcast.dispatch_activation_started(activation, None)
+
+        _event, payload = publisher.return_value.emit.await_args.args
+        assert payload["brief"] == "水 火 山"
+        assert activities._activation_out(activation, None).brief == "水 火 山"
 
     async def test_a_human_round_carries_neither_agent_field(self, monkeypatch: pytest.MonkeyPatch) -> None:
         activation = _activation(uuid.uuid4(), started_by=uuid.uuid4())

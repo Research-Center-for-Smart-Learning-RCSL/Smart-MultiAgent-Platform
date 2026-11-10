@@ -9,6 +9,8 @@
       "active": "Active activity",
       "selectType": "Select an activity",
       "startForRoom": "Start for room",
+      "briefLabel": "Round brief (optional, shown to everyone)",
+      "briefPlaceholder": "For example, this round's puzzle. Never the answer.",
       "markDone": "I'm done",
       "markDoneUndo": "Keep working",
       "progress": "{completed} done, {working} still working",

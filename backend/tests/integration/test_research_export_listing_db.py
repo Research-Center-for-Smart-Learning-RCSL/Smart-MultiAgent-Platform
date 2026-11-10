@@ -112,6 +112,7 @@ async def room(
                 chatroom_id=chatroom_id,
                 activity_type_id=type_id,
                 started_by_user_id=owner_id,
+                brief="水 火 山",
             )
         )
         await session.commit()
@@ -218,6 +219,9 @@ async def test_guests_keep_distinct_codes_that_join_transcripts_to_submissions(
     }
     assert all(s.payload_fields == ("answer", "zz", "because") for s in listed)
     assert {s.activity_type_id for s in listed} == {room.activity_type_id}
+    # [R33.10] round columns: every row carries its own activation, read through the join.
+    assert {(s.activation_id, s.round_brief) for s in listed} == {(room.activation_id, "水 火 山")}
+    assert all(s.round_started_at is not None for s in listed)
 
     files = ResearchExportBuilder().build_files(
         workspace_id=room.workspace_id,
@@ -264,3 +268,24 @@ async def test_guests_keep_distinct_codes_that_join_transcripts_to_submissions(
     assert f"{subject_code(room.owner_user_id)},user," in csv_text
     assert f"{group_subject_code(room.group_id)},group," in csv_text
     assert subject_code(room.guests[0]) != subject_code(room.guests[1])
+
+
+async def test_the_brief_check_refuses_more_than_200_characters(
+    sessionmaker: async_sessionmaker[AsyncSession], room: Room
+) -> None:
+    """The service bounds the brief; the CHECK (0114) holds for any other writer."""
+    from sqlalchemy.exc import IntegrityError
+
+    async with sessionmaker() as session:
+        await session.execute(
+            at.activity_activations.update()
+            .where(at.activity_activations.c.id == room.activation_id)
+            .values(brief="字" * 200)
+        )
+        await session.commit()
+        with pytest.raises(IntegrityError):
+            await session.execute(
+                at.activity_activations.update()
+                .where(at.activity_activations.c.id == room.activation_id)
+                .values(brief="字" * 201)
+            )

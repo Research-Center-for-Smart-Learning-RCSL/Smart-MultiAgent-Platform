@@ -29,6 +29,7 @@ from contexts.activities.domain.models import (
     RecentActivityRow,
     RoomActivityState,
 )
+from contexts.activities.domain.round_brief import MAX_BRIEF_CHARS
 from contexts.activities.domain.subject_code import group_subject_code, outcome_word, subject_code
 from shared_kernel.tokens import estimate_tokens
 
@@ -487,6 +488,19 @@ def _activity_line(activation: ActivityActivation, activity_type: ActivityType |
     )
 
 
+def _brief_line(brief: str) -> str:
+    """The round brief as one quoted line ([R30.44]).
+
+    Labelled as text someone wrote, not as server state: the preamble vouches for
+    every other line of this block, and a brief is model- or teacher-authored.
+    Line breaks become `` / `` before ``_one_line`` so they do not just vanish."""
+    text = " / ".join(brief.splitlines())
+    return (
+        "Round brief, as written by whoever started this round and shown to every participant: "
+        f"{_quoted(text, MAX_BRIEF_CHARS + 10)}."
+    )
+
+
 def _state_sections(state: RoomActivityState, names: Mapping[uuid.UUID, str]) -> list[tuple[str, list[str]]]:
     open_rows = [
         f"- {_group_ref(p.member_group_id, names)}: {p.approvals} approve, {p.rejections} reject, "
@@ -528,6 +542,8 @@ def render_activity_state(state: RoomActivityState, *, group_names: Mapping[uuid
     head.append(_activity_line(state.activation, state.activity_type))
     if state.activation.status is not ActivationStatus.ACTIVE:
         return "\n".join(head)
+    if state.activation.brief:
+        head.append(_brief_line(state.activation.brief))
     if state.observed_at is not None:
         head.append(_timing_line(state.activation, state.observed_at))
     if is_individual_type(state.activity_type):

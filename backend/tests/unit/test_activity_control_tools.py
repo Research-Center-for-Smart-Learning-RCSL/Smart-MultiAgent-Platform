@@ -97,6 +97,7 @@ class _FakeActivitiesFacade:
     start_error: ClassVar[Exception | None] = None
     active: ClassVar[ActivityActivation | None] = None
     end_transitioned: ClassVar[bool] = True
+    already_running: ClassVar[bool] = False
 
     @classmethod
     def reset(cls) -> None:
@@ -106,6 +107,7 @@ class _FakeActivitiesFacade:
         cls.start_error = None
         cls.active = None
         cls.end_transitioned = True
+        cls.already_running = False
 
     async def resolve_type_for_project(
         self, *, project_id: uuid.UUID, activity_type_id: uuid.UUID
@@ -127,7 +129,10 @@ class _FakeActivitiesFacade:
             status=ActivationStatus.ACTIVE,
             created_at=_NOW,
             started_by_agent_id=kw.get("started_by_agent_id"),
+            brief=kw.get("brief"),
         )
+        if _FakeActivitiesFacade.already_running:
+            return ActivityActivationStartResult(activation=activation, already_running=True)
         notice = ActivationNotice(message_id=uuid.uuid4(), chatroom_id=kw["chatroom_id"], created_at=_NOW)
         return ActivityActivationStartResult(activation=activation, notice=notice)
 
@@ -417,6 +422,58 @@ class TestStartActivity:
         tools = _tools_for(_control(_type("unit2")))
 
         result = await tools["start_activity"].invoke({"activity_type_key": "unit9"})
+
+        assert result.is_error is True
+        assert _FakeActivitiesFacade.started == []
+
+
+class TestStartActivityBrief:
+    """AC-2 and AC-4 of docs/tasks/2026-11-10-crat-lab-trial-fixes on the tool path."""
+
+    def test_the_schema_offers_an_optional_bounded_brief(self) -> None:
+        schema = _tools_for(_control(_type("unit2")))["start_activity"].input_schema
+        assert schema["properties"]["brief"]["maxLength"] == 200
+        assert schema["required"] == ["activity_type_key"]
+        assert "never contain an answer" in schema["properties"]["brief"]["description"]
+
+    async def test_the_brief_reaches_the_service(self) -> None:
+        tools = _tools_for(_control(_type("unit2")))
+
+        result = await tools["start_activity"].invoke({"activity_type_key": "unit2", "brief": "水 火 山"})
+
+        assert result.is_error is False
+        assert _FakeActivitiesFacade.started[0]["brief"] == "水 火 山"
+
+    async def test_a_repeat_start_says_already_running_and_emits_nothing(self) -> None:
+        """AC-4: the old "Started" made a model believe its new brief was on the panel."""
+        _FakeActivitiesFacade.already_running = True
+        sink: list[dict[str, Any]] = []
+        tools = _tools_for(_control(_type("unit2", name="CRAT")), sink=sink)
+
+        result = await tools["start_activity"].invoke({"activity_type_key": "unit2", "brief": "new"})
+
+        assert result.is_error is True
+        assert "already running" in result.content
+        assert "Started" not in result.content
+        assert sink == []
+
+    async def test_a_refused_brief_is_a_readable_error(self) -> None:
+        from contexts.activities.domain.errors import RoundBriefInvalid
+
+        _FakeActivitiesFacade.start_error = RoundBriefInvalid("a round brief has at most 3 lines")
+        sink: list[dict[str, Any]] = []
+        tools = _tools_for(_control(_type("unit2")), sink=sink)
+
+        result = await tools["start_activity"].invoke({"activity_type_key": "unit2", "brief": "a\nb\nc\nd"})
+
+        assert result.is_error is True
+        assert "at most 3 lines" in result.content
+        assert sink == []
+
+    async def test_a_non_text_brief_is_refused_without_calling_the_service(self) -> None:
+        tools = _tools_for(_control(_type("unit2")))
+
+        result = await tools["start_activity"].invoke({"activity_type_key": "unit2", "brief": ["x"]})
 
         assert result.is_error is True
         assert _FakeActivitiesFacade.started == []

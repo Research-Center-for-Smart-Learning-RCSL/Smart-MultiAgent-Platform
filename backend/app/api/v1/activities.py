@@ -220,6 +220,9 @@ class ActivitySessionOpenIn(BaseModel):
 
 class ActivityActivationStartIn(BaseModel):
     activity_type_id: uuid.UUID
+    # [R30.21]: shown to every participant for this round. The length bound here
+    # is a cheap first cut; the service owns the full rule (lines, control chars).
+    brief: str | None = Field(default=None, max_length=400)
 
 
 class ActivityActivationOut(BaseModel):
@@ -246,6 +249,8 @@ class ActivityActivationOut(BaseModel):
     # [R30.46]: snapshotted at start; both null for a round without a limit.
     time_limit_minutes: int | None = None
     deadline_at: str | None = None
+    # [R30.21]: plain text fixed at start; null when the round has none.
+    brief: str | None = None
 
 
 class ActivitySessionOut(BaseModel):
@@ -509,6 +514,7 @@ def _activation_out(
         started_by_agent_name=initiating_agent.name if initiating_agent else None,
         time_limit_minutes=a.time_limit_minutes,
         deadline_at=a.deadline_at.isoformat() if a.deadline_at else None,
+        brief=a.brief,
     )
 
 
@@ -985,6 +991,7 @@ async def start_activity_activation(
         started_by_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        brief=body.brief,
     )
     await db.commit()
     await record_alert_reaction(

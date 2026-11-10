@@ -4,5 +4,6 @@
 /* eslint-disable */
 export type ActivityActivationStartIn = {
     activity_type_id: string;
+    brief?: (string | null);
 };
 

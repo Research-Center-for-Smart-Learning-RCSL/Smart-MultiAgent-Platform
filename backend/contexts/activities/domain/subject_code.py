@@ -48,6 +48,11 @@ def room_code(chatroom_id: uuid.UUID) -> str:
     return f"r:{str(chatroom_id)[:_CODE_CHARS]}"
 
 
+def round_code(activation_id: uuid.UUID) -> str:
+    """An activation (one round) as the research export names it ([R33.10])."""
+    return f"a:{str(activation_id)[:_CODE_CHARS]}"
+
+
 def workspace_code(workspace_id: uuid.UUID) -> str:
     return f"w:{str(workspace_id)[:_CODE_CHARS]}"
 

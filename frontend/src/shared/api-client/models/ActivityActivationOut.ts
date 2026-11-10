@@ -6,6 +6,7 @@ import type { ActivityTypePublicOut } from './ActivityTypePublicOut';
 export type ActivityActivationOut = {
     activity_type?: (ActivityTypePublicOut | null);
     activity_type_id: string;
+    brief?: (string | null);
     chatroom_id: string;
     created_at: (string | null);
     deadline_at?: (string | null);

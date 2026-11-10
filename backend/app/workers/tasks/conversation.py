@@ -454,6 +454,9 @@ async def research_data_export(
                     type_version=s.type_version,
                     judge_status=s.judge_status,
                     judge_scores=s.judge_scores,
+                    activation_id=s.activation_id,
+                    round_started_at=s.round_started_at,
+                    round_brief=s.round_brief,
                 )
                 for s in raw_subs
             ]

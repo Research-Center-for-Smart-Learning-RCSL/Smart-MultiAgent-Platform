@@ -822,6 +822,33 @@ def _proposal(
     return ProposalStateRow(**base)  # type: ignore[arg-type]
 
 
+class TestRoundBriefLine:
+    """AC-3 of docs/tasks/2026-11-10-crat-lab-trial-fixes."""
+
+    def test_the_running_rounds_brief_is_one_quoted_line(self) -> None:
+        state = RoomActivityState(
+            activation=_activation(brief='水 火 山\n第二行 "x"'), activity_type=_activity_type()
+        )
+        lines = render_activity_state(state, group_names={}).splitlines()
+
+        (brief,) = [line for line in lines if line.startswith("Round brief")]
+        assert brief.endswith('"水 火 山 / 第二行 x".')
+        assert "written by whoever started this round" in brief
+
+    def test_no_brief_no_line(self) -> None:
+        text = render_activity_state(
+            RoomActivityState(activation=_activation(), activity_type=_activity_type()), group_names={}
+        )
+        assert "Round brief" not in text
+
+    def test_an_ended_rounds_brief_is_not_shown(self) -> None:
+        state = RoomActivityState(
+            activation=_activation(status=ActivationStatus.ENDED, ended_at=_ENDED, brief="水 火 山"),
+            activity_type=_activity_type(),
+        )
+        assert "Round brief" not in render_activity_state(state, group_names={})
+
+
 class TestActivityStateRendering:
     def test_a_room_that_never_ran_an_activity_says_so(self) -> None:
         """AC-9: stated, not left for the model to infer from an absent block."""

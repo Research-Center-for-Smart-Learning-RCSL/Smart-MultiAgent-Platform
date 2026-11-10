@@ -198,7 +198,7 @@ class TestNoFullIds:
         assert json.loads(files["observations.json"])[0]["room_code"] == room_code(_ROOM_2)
         assert list(json.loads(files["transcripts.json"])) == [room_code(_ROOM_1)]
         manifest = json.loads(files["manifest.json"])
-        assert manifest["schema_version"] == 3
+        assert manifest["schema_version"] == 4
         assert manifest["workspace_code"] == workspace_code(_WORKSPACE)
         assert "workspace_id" not in manifest
         assert room_code(_ROOM_1) == f"r:{str(_ROOM_1)[:8]}"
@@ -232,8 +232,8 @@ class TestSubmissionCsvs:
             ),
         ]
         files = _files(rows)
-        assert _header(files["submissions/rat.csv"])[9] == "a"
-        assert _header(files["submissions/rat-2.csv"])[9] == "b"
+        assert _header(files["submissions/rat.csv"])[12] == "a"
+        assert _header(files["submissions/rat-2.csv"])[12] == "b"
 
     def test_type_keys_that_sanitise_alike_do_not_overwrite_each_other(self) -> None:
         files = _files([_sub_row(activity_type_key="a b"), _sub_row(activity_type_key="a.b")])
@@ -249,6 +249,9 @@ class TestSubmissionCsvs:
             "subject_code",
             "subject_kind",
             "room_code",
+            "round_code",
+            "round_started_at",
+            "round_brief",
             "type_version",
             "attempt_no",
             "is_valid",
@@ -275,7 +278,7 @@ class TestSubmissionCsvs:
             _sub_row(payload={"c": 2}, payload_fields=("a", "c")),
         ]
         header = _header(_files(rows)["submissions/six-thinking-hats.csv"])
-        assert header[9:12] == ["b", "a", "c"]
+        assert header[12:15] == ["b", "a", "c"]
 
     def test_chinese_stays_readable_and_the_file_starts_with_a_bom(self) -> None:
         content = _files([_sub_row(payload={"answer": "林"})])["submissions/six-thinking-hats.csv"]
@@ -335,6 +338,9 @@ class TestSubmissionCsvs:
                 sub_scores={},
                 payload_fields=("a",),
                 type_version=3,
+                activation_id=uuid.UUID("7d8e9f00-0000-4000-8000-000000000004"),
+                round_started_at=datetime(2026, 10, 19, 9, 25, tzinfo=UTC),
+                round_brief="=水 火 山\n第二行",
                 judge_status="scored",
                 judge_scores={
                     "fluency": 1,
@@ -361,12 +367,12 @@ class TestSubmissionCsvs:
             ),
         ]
         assert _files(rows)["submissions/rat.csv"] == (
-            "\ufeffsubject_code,subject_kind,room_code,type_version,attempt_no,is_valid,error_class,latency_ms,"
+            "\ufeffsubject_code,subject_kind,room_code,round_code,round_started_at,round_brief,type_version,attempt_no,is_valid,error_class,latency_ms,"
             "created_at,a,sub_scores_filled,sub_scores_filled_fields,judge_status,fluency,flexibility,"
             "originality,convergence,judge_model,payload_json,sub_scores_json\r\n"
-            "u:1a2b3c4d,user,r:9c0d1e2f,3,1,True,,120,"
+            'u:1a2b3c4d,user,r:9c0d1e2f,a:7d8e9f00,2026-10-19T09:25:00+00:00,"\'=水 火 山\n第二行",3,1,True,,120,'
             '2026-10-19T09:30:00+00:00,x,,,scored,1,2,3,0,judge-m,"{""a"": ""x""}",{}\r\n'
-            "g:5e6f7a8b,group,r:9c0d1e2f,unknown,2,False,schema,,"
+            "g:5e6f7a8b,group,r:9c0d1e2f,,,,unknown,2,False,schema,,"
             "2026-10-19T09:30:00+00:00,,,,,,,,,,{},{}\r\n"
         )
 

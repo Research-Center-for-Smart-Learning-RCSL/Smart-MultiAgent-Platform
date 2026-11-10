@@ -7,12 +7,17 @@ context stays in one file, and these are the only tools in the runtime whose
 WHAT MAKES THIS SAFE TO EXIST AT ALL
 ------------------------------------
 The only path from model output to a class-visible activation is a structured tool
-call whose one argument is an ``enum`` built at turn-assembly time from the types
-the room creator selected. A participant cannot widen that set, and a participant's
-text cannot become an argument value — no client-supplied identifier crosses this
-boundary at all. The residual exposure is that a participant may *persuade* a
-granted agent to call the tool at a bad moment; that is bounded by the allowlist
-and addressed in the agent's prompt, not here.
+call whose type argument is an ``enum`` built at turn-assembly time from the types
+the room creator selected. A participant cannot widen that set, and no
+client-supplied identifier crosses this boundary at all. The one free-text argument
+is the optional round ``brief`` ([R30.21]): model-written, so a participant could
+persuade the agent to put words of theirs in it. It is bounded to 200 characters
+of plain text by the activities service, rendered by interpolation (never as HTML)
+on the panel, and quoted as one line in agent context, so the worst case is a short
+line of text the class sees, which the agent could already have posted as a
+message. The residual exposure is that a participant may *persuade* a granted agent
+to call the tool at a bad moment; that is bounded by the allowlist and addressed in
+the agent's prompt, not here.
 
 Both tools reach the same ``ActivitiesFacade`` methods the HTTP routes do, so type
 reachability ([R30.33]) and the platform governance policy ([R30.30]) are enforced
@@ -37,6 +42,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.domain.models import ActivityType
+from contexts.activities.domain.round_brief import MAX_BRIEF_CHARS
 from contexts.agents.application.runtime.tool_registry import Tool, ToolResult, clip_tool_output
 from contexts.agents.domain.models import Agent
 from contexts.conversation.interfaces.facade import ActivityControlGrant, ConversationFacade
@@ -234,7 +240,18 @@ def _build_start_tool(
                 "type": "string",
                 "enum": list(by_value),
                 "description": "Which activity to start. Must be one of the listed values.",
-            }
+            },
+            "brief": {
+                "type": "string",
+                "maxLength": MAX_BRIEF_CHARS,
+                "description": (
+                    "Optional round brief, shown as plain text at the top of every participant's "
+                    "activity panel for this round, for example the puzzle or task of this round. "
+                    "At most 200 characters and 3 lines. Everyone can read it, so it must never "
+                    "contain an answer. Fixed for the round: to change it, end the activity and "
+                    "start a new one."
+                ),
+            },
         },
         "required": ["activity_type_key"],
         "additionalProperties": False,
@@ -253,6 +270,9 @@ def _build_start_tool(
                 content=f"{value!r} is not one of the activities you may run: {', '.join(by_value)}.",
                 is_error=True,
             )
+        raw_brief = args.get("brief")
+        if raw_brief is not None and not isinstance(raw_brief, str):
+            return ToolResult(content="brief must be text.", is_error=True)
         try:
             started = await ActivitiesFacade(db).start_activation(
                 project_id=control.project_id,
@@ -264,6 +284,7 @@ def _build_start_tool(
                 started_by_user_id=control.grant.granted_by_user_id,
                 actor_ip=None,
                 started_by_agent_id=agent.id,
+                brief=raw_brief,
             )
         except Exception as exc:
             _reraise_if_infrastructure(exc, "start_activity")
@@ -273,6 +294,16 @@ def _build_start_tool(
             # before it inserts.
             return ToolResult(content=_start_failure(exc), is_error=True)
         activation = started.activation
+        if started.already_running:
+            # Nothing began, so nothing is recorded or broadcast; saying "Started"
+            # here let a model believe its new brief had reached the panel.
+            return ToolResult(
+                content=(
+                    f"{target.name!r} is already running in this room; nothing changed and the "
+                    "brief was not applied. End it first to start a new round with a new brief."
+                ),
+                is_error=True,
+            )
 
         recorded = await _audit_activity_tool(
             db, agent=agent, tool_name="start_activity", chatroom_id=control.chatroom_id, ok=True

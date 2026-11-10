@@ -1025,9 +1025,12 @@ class ActivitySubmissionRepository:
             clauses.append(_SUB.c.created_at < created_before)
 
         rev = t.activity_type_revisions
+        act = t.activity_activations
         j = (
             _SUB.join(_TYPE, _SUB.c.activity_type_id == _TYPE.c.id)
             .join(_SESS, _SUB.c.session_id == _SESS.c.id)
+            # Outer: a pre-0077 session has no activation, and its row still exports.
+            .outerjoin(act, act.c.id == _SESS.c.activation_id)
             .outerjoin(
                 rev,
                 sa.and_(
@@ -1060,6 +1063,9 @@ class ActivitySubmissionRepository:
                 _SESS.c.subject_user_id,
                 _SESS.c.subject_member_group_id,
                 _SESS.c.subject_kind,
+                _SESS.c.activation_id,
+                act.c.created_at.label("round_started_at"),
+                act.c.brief.label("round_brief"),
             )
             .select_from(j)
             .where(sa.and_(*clauses))
@@ -1087,6 +1093,9 @@ class ActivitySubmissionRepository:
                 type_version=r.type_version,
                 judge_status=r.judge_status,
                 judge_scores=dict(r.judge_scores) if r.judge_scores is not None else None,
+                activation_id=r.activation_id,
+                round_started_at=r.round_started_at,
+                round_brief=r.round_brief,
             )
             for r in rows
         ]

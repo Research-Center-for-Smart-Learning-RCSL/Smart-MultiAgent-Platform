@@ -31,6 +31,7 @@ from contexts.activities.domain.models import (
     ActivityActivationStartResult,
     ActivityType,
 )
+from contexts.activities.domain.round_brief import normalize_round_brief
 from contexts.activities.infrastructure.repositories.optin_repo import (
     ProjectActivityTypeOptInRepository,
 )
@@ -102,14 +103,17 @@ class ActivationService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
         started_by_agent_id: uuid.UUID | None = None,
+        brief: str | None = None,
     ) -> ActivityActivationStartResult:
         """Start a round. ``started_by_agent_id`` marks a delegated start ([R30.37]).
 
         The delegated path differs only in what is *recorded*: both gates below run
         identically for it, in the same order, on this same method — there is no
         second code path an agent could take. ``started_by_user_id`` is the granting
-        teacher either way.
+        teacher either way. ``brief`` is normalised here for both paths, before any
+        gate, so a refused brief produces nothing.
         """
+        normalized_brief = normalize_round_brief(brief)
         # Tenant isolation ([R30.09], [R30.33]): the caller supplies the type id,
         # so this is the gate — not the picker the facilitator chose it from.
         activity_type = await resolve_reachable_type(
@@ -132,6 +136,7 @@ class ActivationService:
             started_by_user_id=started_by_user_id,
             started_by_agent_id=started_by_agent_id,
             time_limit_minutes=await self.resolve_time_limit(chatroom_id, activity_type),
+            brief=normalized_brief,
         )
         if activation_id is None:
             active = await self._repo.get_active(chatroom_id)
@@ -139,8 +144,8 @@ class ActivationService:
                 raise ActivityActivationNotFound(str(chatroom_id))
             if active.activity_type_id != activity_type_id:
                 raise ActivityAlreadyActive(str(active.id))
-            # [R30.45]: nothing began, so no notice.
-            return ActivityActivationStartResult(activation=active)
+            # [R30.45]: nothing began, so no notice; the brief is immutable ([R30.21]).
+            return ActivityActivationStartResult(activation=active, already_running=True)
 
         activation = await self._repo.get(activation_id)
         if activation is None:  # pragma: no cover - inserted in this transaction
@@ -161,6 +166,9 @@ class ActivationService:
                     # (AC-12), and a `via: "facilitator"` on every historical row
                     # would be a claim this code never made about them.
                     **_delegation_metadata("started_by_agent_id", started_by_agent_id),
+                    # Presence and length only: the text is class-visible, but the
+                    # audit trail records facts about the action, not its content.
+                    **({"brief_chars": str(len(normalized_brief))} if normalized_brief else {}),
                 },
                 request_id=request_id,
             ),

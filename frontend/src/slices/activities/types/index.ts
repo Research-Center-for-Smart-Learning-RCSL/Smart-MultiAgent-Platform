@@ -45,6 +45,9 @@ export interface ActivationView {
    *  when the round has no limit, or when the source (the room broadcast) does
    *  not carry one. */
   deadlineAt?: string | null
+  /** The round brief, plain text fixed at start ([R30.21]); null when none. Must be
+   *  rendered by interpolation: an agent writes it. */
+  brief?: string | null
 }
 
 /** A group's proposal and where its vote stands ([R30.41]). Carries the payload,

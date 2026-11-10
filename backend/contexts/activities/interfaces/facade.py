@@ -495,6 +495,7 @@ class ActivitiesFacade:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
         started_by_agent_id: uuid.UUID | None = None,
+        brief: str | None = None,
     ) -> ActivityActivationStartResult:
         """Start a round; ``started_by_agent_id`` marks a delegated start ([R30.37]).
 
@@ -511,6 +512,7 @@ class ActivitiesFacade:
             actor_ip=actor_ip,
             request_id=request_id,
             started_by_agent_id=started_by_agent_id,
+            brief=brief,
         )
 
     async def end_activation(
