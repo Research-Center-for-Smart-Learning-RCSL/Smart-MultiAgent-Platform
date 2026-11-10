@@ -218,6 +218,10 @@ This change adds agent tools and LLM prompt surfaces, so Part F of `check-securi
 - Frontend (Vitest): role selector constraints and warnings; alert view reporting only when the panel is open and the page is visible; collaboration log and design panel states (AC-1, AC-3, AC-5, AC-19).
 - Manual on staging (AC-21): a new simulator scenario under `frontend/sim/scenarios/`, plus the export opened in Excel.
 
+### Staging runs for AC-21
+
+Run 1 (2026-11-10, `frontend/sim/runs/20261110-000732-classroom-collab-ac21`, room `b5116987-9a33-4e88-874f-15e69cb5c6bd`, main at 005e0d40) met one of the three parts. Peer reviews: SA was held three times, and TA modified two drafts and approved one, each with a reason; the first mention produced an empty SA reply and no review. Alerts: AA raised one alert at the round 3 stall, and the creator's message set its first action time 14 minutes later, but no view time was recorded because the backend logs show no dashboard alert request during the run. Notices: none. AA woke once on the message count (39 human messages, one short of the second 20-message wake), and that turn raised the alert rather than a notice. Neither TA nor SA put an error before the students, since TA rewrote both wrong SA drafts. The CRAT pack's AA prompt covers only the students' discussion and says nothing about agent errors, so the notice tool is offered with only its own description to prompt it. The pack's fourth item was 颱/威/兜, not the 眼/時/觀 the scenario assumed, so round 4's student lines were off topic; commit 062264bb aligns round 4 with the pack and raises the student messages to 48.
+
 ## 13. SRS Delta
 
 New section, appended after §33:
