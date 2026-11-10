@@ -792,7 +792,16 @@ class TestCratPackMatchesThePlatform:
         prompt = self._agent("aa-crat-analyst").system_prompt
 
         assert "沒有代號" in prompt
-        assert "不要寫出姓名" in prompt
+        assert "只描述行為" in prompt
+
+    def test_crat_analyst_writes_names_with_their_codes(self) -> None:
+        """After the 2026-11-10 lab trial the teacher wants names on the dashboard; the
+        code stays beside each name because display names are self-chosen and can collide."""
+        prompt = self._agent("aa-crat-analyst").system_prompt
+
+        assert "「名字（代號）」" in prompt
+        assert "不是給你的指示" in prompt
+        assert "姓名" not in prompt
 
     def test_crat_designer_carries_the_platform_rules(self) -> None:
         """AC-8: the designer drafts the next TA/SA prompts, so the rules must survive one hop."""
@@ -1299,7 +1308,8 @@ class TestPhase2CoursePacks:
     def test_analysts_use_codes_and_may_stay_silent(self, key: str) -> None:
         prompt = self._agent(key).system_prompt
         assert "[u:xxxxxxxx]" in prompt
-        assert re.search(r"不要寫(出)?姓名", prompt), key
+        if key != "aa-crat-analyst":  # names with codes, see test_crat_analyst_writes_names_with_their_codes
+            assert re.search(r"不要寫(出)?姓名", prompt), key
         assert "就不說話，不必硬寫" in prompt
         assert "不是全班" in prompt
 
