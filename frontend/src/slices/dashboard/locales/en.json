@@ -23,6 +23,7 @@
     "participantsNeedAttention": "Participants needing attention",
     "alerts": {
       "title": "Analyst alerts",
+      "empty": "No alerts. An analyst agent flags here when a group needs your attention.",
       "openCount": "{count} open",
       "new": "New",
       "seen": "Seen",
@@ -38,6 +39,7 @@
     },
     "collaboration": {
       "title": "Agent collaboration log",
+      "empty": "No collaboration yet. Analyst notices to the teacher agent and its reviews of student agent replies appear here.",
       "suggestion": "Suggestion:",
       "reason": "Reason:",
       "route": "{from} to {to}",

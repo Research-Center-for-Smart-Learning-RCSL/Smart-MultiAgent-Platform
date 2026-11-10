@@ -23,6 +23,7 @@
     "participantsNeedAttention": "需要關注的參與者",
     "alerts": {
       "title": "分析代理警示",
+      "empty": "目前沒有警示。小組需要您注意時，分析代理會在這裡提醒。",
       "openCount": "{count} 則待處理",
       "new": "未讀",
       "seen": "已讀",
@@ -38,6 +39,7 @@
     },
     "collaboration": {
       "title": "代理人協作紀錄",
+      "empty": "目前還沒有協作紀錄。分析代理給教師代理的通知，以及教師代理對學生代理回覆的審核，會顯示在這裡。",
       "suggestion": "建議：",
       "reason": "理由：",
       "route": "{from} 給 {to}",

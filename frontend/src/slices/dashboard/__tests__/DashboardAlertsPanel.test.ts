@@ -45,11 +45,12 @@ describe('DashboardAlertsPanel', () => {
   })
   afterEach(() => setVisibility('visible'))
 
-  it('renders nothing when there are no alerts', async () => {
+  it('shows an empty state when there are no alerts', async () => {
     alertsMock.mockResolvedValue({ alerts: [] })
     const wrapper = await renderView(DashboardAlertsPanel, { props: { workspaceId: 'w1' } })
     await flushPromises()
-    expect(wrapper.find('section').exists()).toBe(false)
+    expect(wrapper.find('section').text()).toContain('dashboard.alerts.empty')
+    expect(wrapper.findAll('[data-testid="dashboard-alert"]')).toHaveLength(0)
     expect(viewsMock).not.toHaveBeenCalled()
   })
 
