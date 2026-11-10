@@ -63,6 +63,7 @@ from contexts.conversation.domain.models import (
     PeerReplyReview,
     PeerReviewDecision,
     PeerReviewExpiry,
+    PeerReviewStatus,
     SenderType,
     Workspace,
 )
@@ -1214,6 +1215,16 @@ class ConversationFacade:
         from contexts.conversation.application.peer_review_service import PeerReviewService
 
         return await PeerReviewService(self._db).untold_rejections(chatroom_id=chatroom_id, agent_id=agent_id)
+
+    async def untold_peer_modifications(
+        self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID
+    ) -> Sequence[PeerReplyReview]:
+        """The peer's replies the teacher agent posted in a revised form, not yet told."""
+        from contexts.conversation.application.peer_review_service import PeerReviewService
+
+        return await PeerReviewService(self._db).untold_rejections(
+            chatroom_id=chatroom_id, agent_id=agent_id, status=PeerReviewStatus.MODIFIED
+        )
 
     async def mark_peer_rejections_told(self, review_ids: Sequence[uuid.UUID]) -> None:
         """In the caller's transaction, so a turn that rolls back tells them again."""

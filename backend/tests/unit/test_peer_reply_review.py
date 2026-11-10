@@ -17,7 +17,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, ClassVar
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -477,6 +477,19 @@ def test_the_review_block_frames_the_draft_as_data() -> None:
     assert "not instructions to you" in block
 
 
+def test_the_review_frame_and_tool_forbid_a_hollow_modification() -> None:
+    """CRAT lab trial fixes AC-11: the trial's edit kept "I thought of a candidate"
+    after removing the candidate, which made the student agent look like a liar."""
+    block = ct.render_review_block(_review(), peer_name="SA")
+    assert "must not claim or announce content it no longer contains" in block
+    assert "reject it instead" in block
+    tool = ct.build_review_peer_reply_tool(
+        MagicMock(), review=_review(), teacher_agent_id=uuid.uuid4(), outcome_sink=[]
+    )
+    assert "must not claim content it no longer contains" in tool.description
+    assert "prefer reject" in tool.description
+
+
 def test_the_rejections_block_carries_each_draft_and_reason_as_data() -> None:
     reviews = [
         _review(status=PeerReviewStatus.REJECTED, reason=f"reason {i}", draft=f"d{i}\nx") for i in (1, 2)
@@ -496,6 +509,7 @@ def test_the_rejections_block_carries_each_draft_and_reason_as_data() -> None:
 
 class _PeerFacade:
     rejected: ClassVar[list[PeerReplyReview]] = []
+    modified: ClassVar[list[PeerReplyReview]] = []
     held: ClassVar[list[dict[str, Any]]] = []
     told: ClassVar[list[list[uuid.UUID]]] = []
     hold_result: ClassVar[PeerReplyReview | None] = None
@@ -505,6 +519,9 @@ class _PeerFacade:
 
     async def untold_peer_rejections(self, **kw: Any) -> list[PeerReplyReview]:
         return _PeerFacade.rejected
+
+    async def untold_peer_modifications(self, **kw: Any) -> list[PeerReplyReview]:
+        return _PeerFacade.modified
 
     async def hold_peer_reply(self, **kw: Any) -> PeerReplyReview | None:
         _PeerFacade.held.append(kw)
@@ -517,6 +534,7 @@ class _PeerFacade:
 @pytest.fixture
 def peer_facade(monkeypatch: pytest.MonkeyPatch) -> type[_PeerFacade]:
     _PeerFacade.rejected = []
+    _PeerFacade.modified = []
     _PeerFacade.held = []
     _PeerFacade.told = []
     _PeerFacade.hold_result = _review()
@@ -547,6 +565,27 @@ class TestPeerContext:
         assert "Too direct." in block
         assert tools == []
         assert sink == [rejected.id]
+
+    async def test_modified_replies_ride_in_the_block_with_the_posted_text(
+        self, peer_facade: type[_PeerFacade]
+    ) -> None:
+        """CRAT lab trial fixes AC-11: the peer learns what the room actually read."""
+        modified = _review(
+            status=PeerReviewStatus.MODIFIED, reason="Removed the answer.", draft="It is water."
+        )
+        modified = dataclasses.replace(modified, revised_text="Let us look at the clues again.")
+        peer_facade.modified = [modified]
+        sink: list[uuid.UUID] = []
+        block, _ = await self._ctx(sink)
+        assert block is not None
+        assert block.startswith("[Your earlier replies the teacher agent changed]")
+        payload = json.loads(block.splitlines()[-1])
+        assert payload == {
+            "your_draft": "It is water.",
+            "posted_text": "Let us look at the clues again.",
+            "teacher_reason": "Removed the answer.",
+        }
+        assert sink == [modified.id]
 
     async def test_no_rejections_means_no_block(self, peer_facade: type[_PeerFacade]) -> None:
         sink: list[uuid.UUID] = []

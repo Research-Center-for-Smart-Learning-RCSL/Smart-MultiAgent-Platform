@@ -221,13 +221,17 @@ class PeerReviewService:
         return expired
 
     async def untold_rejections(
-        self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        status: PeerReviewStatus = PeerReviewStatus.REJECTED,
     ) -> Sequence[PeerReplyReview]:
         binding_id = await self._bindings.binding_id_of(chatroom_id=chatroom_id, agent_id=agent_id)
         if binding_id is None:
             return []
         return await self._reviews.untold_rejections(
-            chatroom_id=chatroom_id, peer_agent_id=agent_id, peer_binding_id=binding_id
+            chatroom_id=chatroom_id, peer_agent_id=agent_id, peer_binding_id=binding_id, status=status
         )
 
     async def mark_told(self, review_ids: Sequence[uuid.UUID]) -> None:

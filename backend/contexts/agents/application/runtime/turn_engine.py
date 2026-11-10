@@ -4343,6 +4343,7 @@ class TurnEngine:
             from contexts.agents.application.runtime.collaboration_tools import (
                 build_notify_teacher_agent_tool,
                 build_respond_to_notice_tool,
+                render_modifications_block,
                 render_notice_block,
                 render_rejections_block,
             )
@@ -4358,12 +4359,19 @@ class TurnEngine:
                     )
                 else:
                     rejected = await facade.untold_peer_rejections(chatroom_id=chatroom_id, agent_id=agent.id)
+                    modified = await facade.untold_peer_modifications(
+                        chatroom_id=chatroom_id, agent_id=agent.id
+                    )
             if is_peer:
-                if not rejected:
+                if not rejected and not modified:
                     return None, []
                 if told_sink is not None:
-                    told_sink.extend(r.id for r in rejected)
-                return render_rejections_block(rejected), []
+                    told_sink.extend(r.id for r in (*rejected, *modified))
+                blocks = [
+                    *([render_rejections_block(rejected)] if rejected else []),
+                    *([render_modifications_block(modified)] if modified else []),
+                ]
+                return "\n\n".join(blocks), []
             if is_analyst:
                 if not has_teacher:
                     return None, []

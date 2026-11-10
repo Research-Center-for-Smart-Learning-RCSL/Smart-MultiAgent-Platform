@@ -147,9 +147,15 @@ class PeerReviewRepository:
         return _row_to_review(row) if row else None
 
     async def untold_rejections(
-        self, *, chatroom_id: uuid.UUID, peer_agent_id: uuid.UUID, peer_binding_id: uuid.UUID
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        peer_agent_id: uuid.UUID,
+        peer_binding_id: uuid.UUID,
+        status: PeerReviewStatus = PeerReviewStatus.REJECTED,
     ) -> Sequence[PeerReplyReview]:
-        """Rejections this peer incarnation has not been told about, oldest first."""
+        """Decisions of ``status`` (a rejection, or a modification) this peer
+        incarnation has not been told about, oldest first."""
         rows = (
             await self._db.execute(
                 sa.select(_r)
@@ -157,7 +163,7 @@ class PeerReviewRepository:
                     _r.c.chatroom_id == chatroom_id,
                     _r.c.peer_agent_id == peer_agent_id,
                     _r.c.peer_binding_id == peer_binding_id,
-                    _r.c.status == PeerReviewStatus.REJECTED.value,
+                    _r.c.status == status.value,
                     _r.c.peer_told_at.is_(None),
                 )
                 .order_by(_r.c.created_at, _r.c.id)
