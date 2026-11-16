@@ -369,3 +369,16 @@ class TestRoomGroupListing:
 
         assert view.eligible_groups == ()
         assert len(view.proposals) == 1
+
+
+class TestTheListingIsNoLooserThanTheSingleRead:
+    async def test_a_caller_not_pinned_on_the_proposal_does_not_see_it(self) -> None:
+        """Security audit of the CRAT lab trial fixes: a guest who joined after the
+        ballot was pinned read the class's unsubmitted answer from the listing,
+        while the single read already answered 404."""
+        late = uuid.uuid4()
+
+        view = await _Harness().listing(caller=late, creator=False)
+
+        assert view.proposals == ()
+        assert view.eligible_groups == (MemberGroupRef(id=_ROOM, name="CRAT lab", kind=GroupKind.ROOM),)

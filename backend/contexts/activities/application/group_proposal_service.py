@@ -724,7 +724,10 @@ class GroupProposalService:
                     for p in proposals
                     # A ROOM-kind filter as well as the id: a Member Group can
                     # never share a chatroom's uuid, but the kind is the fact.
+                    # Pinned voters and the creator only, as in `get_tally`: a
+                    # late joiner or a reader must not read the draft answer.
                     if p.group_kind is GroupKind.ROOM
+                    and (caller_is_room_creator or p.may_vote(caller_user_id))
                 ]
             ),
             eligible_groups=()
