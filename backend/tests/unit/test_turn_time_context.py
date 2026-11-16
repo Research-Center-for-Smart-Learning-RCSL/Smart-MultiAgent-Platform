@@ -152,6 +152,18 @@ class TestTimeNote:
             real = te._time_note(T0, worst_rows, trigger)
             assert tx.estimate_tokens(real) <= tx.estimate_tokens(te._TIME_NOTE_MEASURE)
 
+    def test_the_measure_bounds_a_line_naming_an_earlier_reply(self) -> None:
+        """CRAT lab trial fixes AC-12: the answered-after sentence is counted too."""
+        agent_id = uuid.uuid4()
+        woke = _row(T0 - timedelta(hours=99_999, minutes=59))
+        reply = SimpleNamespace(
+            id=uuid.uuid4(), role="agent", content="r", sender_id=agent_id, token_count=1, created_at=T0
+        )
+        for trigger in (*te._WAKE_REASONS, "other"):
+            real = te._time_note(T0, [woke, reply], trigger, agent_id=agent_id, trigger_message_id=woke.id)
+            assert "already posted a reply" in real
+            assert tx.estimate_tokens(real) <= tx.estimate_tokens(te._TIME_NOTE_MEASURE)
+
 
 class TestSystemBlocks:
     def _blocks(self, *, with_time: bool) -> te._SystemBlocks:

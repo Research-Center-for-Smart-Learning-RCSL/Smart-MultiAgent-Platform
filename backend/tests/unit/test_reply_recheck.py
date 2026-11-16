@@ -11,6 +11,7 @@ the new messages, and decides once whether to post it, revise it or say nothing.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -467,3 +468,100 @@ class TestObserverTurns:
 
         assert h.recorded == [te.serialise_blocks(new)]
         assert h.trace.audited("agent.turn_finished")[-1]["recheck"] == "revised"
+
+
+class TestTheCreatorsLateWake:
+    """CRAT lab trial fixes AC-12, the 11:58 pair as the staging worker log shows it.
+
+    The analyst-notice turn took its re-check snapshot before the creator's 11:58:34
+    message committed, so the re-check never showed it and nothing marked it
+    covered. The creator's wake parked behind the turn and its follow-up ran at
+    11:58:37 over a transcript where the teacher's 11:58:36 reply already followed
+    the message, and posted the same point again.
+    """
+
+    _CREATOR_AT = datetime(2026, 11, 10, 11, 58, 34, 133_909, tzinfo=UTC)
+    _REPLY_AT = datetime(2026, 11, 10, 11, 58, 36, 832_249, tzinfo=UTC)
+
+    def _rows(self, agent_id: uuid.UUID) -> tuple[uuid.UUID, list[tx.HistoryMessage]]:
+        creator = tx.HistoryMessage(
+            id=uuid.uuid4(),
+            sender_id=uuid.uuid4(),
+            role="user",
+            content="TA, can you rein in SA?",
+            metadata={},
+            token_count=1,
+            created_at=self._CREATOR_AT,
+        )
+        reply = tx.HistoryMessage(
+            id=uuid.uuid4(),
+            sender_id=agent_id,
+            role="agent",
+            content="SA said it had a candidate and then took it back; let us go back to yours.",
+            metadata={"type": "agent_reply", "recheck": "revised", "trigger": "analyst_notice"},
+            token_count=1,
+            created_at=self._REPLY_AT,
+        )
+        return creator.id, [creator, reply]
+
+    async def _follow_up(self, h: _Harness, creator_id: uuid.UUID) -> te.TurnResult:
+        return await h.engine._run_locked(
+            agent_id=h.agent.id,
+            chatroom_id=uuid.uuid4(),
+            trigger="creator_message",
+            parent_agent_id=None,
+            input_text=None,
+            request_id=None,
+            trigger_message_id=creator_id,
+        )
+
+    async def test_the_follow_up_is_told_its_reply_already_came_after_the_message(self, monkeypatch) -> None:
+        h = _Harness(monkeypatch, outcomes=[_out("")], fresh=[], parked=False)
+        creator_id, h.snapshot = self._rows(h.agent.id)
+
+        await self._follow_up(h, creator_id)
+
+        assert (
+            "The message that woke you was sent at 11:58:34 UTC and you already posted a reply "
+            "after it, at 11:58:36 UTC, which may have been written before that message arrived. "
+            "If your reply already answers it, reply with nothing to stay silent."
+        ) in h.calls[0]["system_text"]
+
+    async def test_a_silent_follow_up_posts_one_reply_in_all(self, monkeypatch) -> None:
+        h = _Harness(monkeypatch, outcomes=[_out("")], fresh=[], parked=False)
+        creator_id, h.snapshot = self._rows(h.agent.id)
+
+        result = await self._follow_up(h, creator_id)
+
+        assert h.sent == []
+        assert (result.status, result.reason) == ("skipped", "empty_reply")
+
+    async def test_a_message_the_agent_has_not_replied_after_gets_no_such_line(self, monkeypatch) -> None:
+        h = _Harness(monkeypatch, outcomes=[_out("Sure.")], fresh=[], parked=False)
+        creator_id, rows = self._rows(h.agent.id)
+        h.snapshot = rows[:1]
+
+        await self._follow_up(h, creator_id)
+
+        assert "already posted a reply" not in h.calls[0]["system_text"]
+
+    async def test_another_agents_later_reply_does_not_count(self, monkeypatch) -> None:
+        h = _Harness(monkeypatch, outcomes=[_out("Sure.")], fresh=[], parked=False)
+        creator_id, rows = self._rows(uuid.uuid4())
+        h.snapshot = rows
+
+        await self._follow_up(h, creator_id)
+
+        assert "already posted a reply" not in h.calls[0]["system_text"]
+
+    async def test_a_recheck_that_showed_the_message_covers_it(self, monkeypatch) -> None:
+        """The path the spec suspected: had the re-check shown the creator's message,
+        its wake would have been skipped before the lock (pinned in
+        ``test_turn_lock_and_coalescing``) because the re-check marks it covered."""
+        creator = _row("TA, can you rein in SA?")
+        h = _Harness(monkeypatch, outcomes=[_out("draft"), _out("revised")], fresh=[creator])
+
+        await h.run()
+
+        assert h.covered == [[creator.id]]
+        assert h.sent == ["revised"]

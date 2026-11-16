@@ -743,7 +743,47 @@ def _with_gap_notices(
     return out
 
 
-def _time_note(now: datetime, rows: Sequence[Any], trigger: str) -> str:
+def _answered_after(
+    rows: Sequence[Any], agent_id: uuid.UUID | None, trigger_message_id: uuid.UUID | None
+) -> tuple[datetime, datetime] | None:
+    """When the waking message was sent and the agent's latest reply after it, if any."""
+    if agent_id is None or trigger_message_id is None:
+        return None
+    sent = next((getattr(r, "created_at", None) for r in rows if r.id == trigger_message_id), None)
+    if sent is None:
+        return None
+    replies = [
+        at
+        for r in rows
+        if r.role == "agent"
+        and r.sender_id == agent_id
+        and (at := getattr(r, "created_at", None)) is not None
+        and at > sent
+    ]
+    return (sent, max(replies)) if replies else None
+
+
+def _answered_sentence(sent: datetime, replied: datetime) -> str:
+    # A turn whose snapshot closed before the waking message committed posts after
+    # it without having read it; the wake that follows cannot tell whether that
+    # reply already says what the message asked for, so the model is told and
+    # left to judge (CRAT lab trial fixes, AC-12).
+    return (
+        f"The message that woke you was sent at {sent.astimezone(UTC):%H:%M:%S} UTC and you "
+        f"already posted a reply after it, at {replied.astimezone(UTC):%H:%M:%S} UTC, which may "
+        "have been written before that message arrived. If your reply already answers it, reply "
+        "with nothing to stay silent."
+    )
+
+
+def _time_note(
+    now: datetime,
+    rows: Sequence[Any],
+    trigger: str,
+    *,
+    agent_id: uuid.UUID | None = None,
+    trigger_message_id: uuid.UUID | None = None,
+) -> str:
     """The system line that gives the model a clock ([R13.73])."""
     parts = [f"Current time: {now.astimezone(UTC):%Y-%m-%d %H:%M} UTC."]
     last = next((t for t in (getattr(r, "created_at", None) for r in reversed(rows)) if t is not None), None)
@@ -754,15 +794,21 @@ def _time_note(now: datetime, rows: Sequence[Any], trigger: str) -> str:
     reason = _WAKE_REASONS.get(trigger)
     if reason:
         parts.append(f"You were woken by {reason}.")
+    answered = _answered_after(rows, agent_id, trigger_message_id)
+    if answered is not None:
+        parts.append(_answered_sentence(*answered))
     parts.append(_TIME_NOTICE_SENTENCE)
     return " ".join(parts)
 
 
+_MEASURE_CLOCK = datetime(2026, 10, 12, 14, 3, 0, tzinfo=UTC)
 # Worst case for the measure pass, which runs before history is loaded.
 _TIME_NOTE_MEASURE = (
     "Current time: 2026-10-12 14:03 UTC. The last room message was sent "
     f"{_LONGEST_DURATION_WORDS} ago. "
-    f"You were woken by {max(_WAKE_REASONS.values(), key=len)}. {_TIME_NOTICE_SENTENCE}"
+    f"You were woken by {max(_WAKE_REASONS.values(), key=len)}. "
+    f"{_answered_sentence(_MEASURE_CLOCK, _MEASURE_CLOCK)} "
+    f"{_TIME_NOTICE_SENTENCE}"
 )
 
 
@@ -3602,7 +3648,9 @@ class TurnEngine:
                     knowledge_blocks,
                     include_conditional=[_PARTICIPANT_NOTE_BLOCK] if labelled_turn else [],
                     participant_note=_participant_note(owner_label),
-                    time_note=_time_note(_now(), stream_rows, trigger),
+                    time_note=_time_note(
+                        _now(), stream_rows, trigger, agent_id=agent.id, trigger_message_id=trigger_message_id
+                    ),
                     participants=participants,
                 )
 
