@@ -1103,9 +1103,7 @@ class ActivitiesFacade:
             chatroom_id=chatroom_id, session_id=session_id, subject_user_id=subject_user_id
         )
 
-    async def resolve_member_group_names(
-        self, group_ids: Sequence[uuid.UUID], *, chatroom_id: uuid.UUID | None = None
-    ) -> dict[uuid.UUID, str]:
+    async def resolve_member_group_names(self, group_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
         """Group id -> group name, for the context block's legend ([R30.43]).
 
         Read through ``TenancyFacade`` rather than by joining ``member_groups``:
@@ -1118,19 +1116,18 @@ class ActivitiesFacade:
         Imported inside the method so the tenancy context stays off this module's
         import graph until a room actually has a group subject.
 
-        With ``chatroom_id``, that room's own id resolves to the room's name: it
-        is the room group's id ([R30.49]) and names no Member Group.
+        An id no Member Group holds is tried as a room: a room group's id is its
+        room's id ([R30.49]) and resolves to the room's name, for every caller
+        (the context block and the dashboard watchlist alike).
         """
         from contexts.conversation.interfaces.facade import ConversationFacade
         from contexts.tenancy.interfaces.facade import TenancyFacade
 
-        names = dict(
-            await TenancyFacade(self._db).member_group_names([g for g in group_ids if g != chatroom_id])
-        )
-        if chatroom_id is not None and chatroom_id in group_ids:
-            room = await ConversationFacade(self._db).get_chatroom(chatroom_id)
-            if room is not None:
-                names[chatroom_id] = room.name
+        names = dict(await TenancyFacade(self._db).member_group_names(list(group_ids)))
+        unresolved = [g for g in group_ids if g not in names]
+        if unresolved:
+            rooms = await ConversationFacade(self._db).get_chatrooms(unresolved)
+            names.update({room_id: room.name for room_id, room in rooms.items()})
         return names
 
     async def list_recent_activity(self, chatroom_id: uuid.UUID, limit: int) -> Sequence[RecentActivityRow]:

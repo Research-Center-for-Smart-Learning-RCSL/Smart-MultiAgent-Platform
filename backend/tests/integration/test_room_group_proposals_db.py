@@ -278,7 +278,7 @@ class TestGuestsDecideAsTheRoom:
         async with sessionmaker() as session:
             facade = ActivitiesFacade(session)
             state = await facade.room_activity_state(room.chatroom_id)
-            names = await facade.resolve_member_group_names([room.chatroom_id], chatroom_id=room.chatroom_id)
+            names = await facade.resolve_member_group_names([room.chatroom_id])
         assert state.room_group is True
         assert names == {room.chatroom_id: _ROOM_NAME}
 

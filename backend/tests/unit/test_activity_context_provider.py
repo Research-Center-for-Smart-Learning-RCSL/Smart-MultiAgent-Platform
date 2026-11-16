@@ -1006,7 +1006,7 @@ class TestActivityStateProvider:
             text = await ActivityContextProvider(MagicMock()).state(chatroom_id=room_id)
 
         assert f'{group_subject_code(_G1)} "Blue"' in text
-        facade.resolve_member_group_names.assert_awaited_once_with([_G1], chatroom_id=room_id)
+        facade.resolve_member_group_names.assert_awaited_once_with([_G1])
 
     async def test_a_failed_name_lookup_keeps_bare_codes(self) -> None:
         state = RoomActivityState(
