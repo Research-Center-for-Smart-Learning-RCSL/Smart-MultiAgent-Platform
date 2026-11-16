@@ -528,8 +528,8 @@ reading the room see a modified reply marked as the teacher agent's revision."
 ## 14. Open Questions
 
 - Resolved (D-1): the 11:58:36 re-check never showed the creator's message; see D-1.
-- The A2 demo puzzle chosen in M6 (茶、酒、紙 → 杯, near-miss 壺: 茶壺 and 酒壺 are words, 紙壺 is
-  not) still needs a human check of the words before the retrial (AC-14).
+- Resolved (D-7): the M6 demo 茶、酒、紙 → 杯 broke the item-bank isolation rule and was replaced
+  by 日、法、英 → 文、語 (near-miss 子).
 
 ## 15. Deviation Log
 
@@ -559,6 +559,20 @@ reading the room see a modified reply marked as the teacher agent's revision."
   earlier-round and late-submission rules are removed; four pack tests that pinned the
   single-activation rules were rewritten to pin the new ones. The TA prompt grew from 15,577 to
   about 17,300 characters, mostly the review section and the fixed demo.
+- D-7 (M6, user decision 2026-11-16): Students who linked a character to the first clue often
+  found nothing for the second, so the user chose multi-answer rounds over a single answer. The
+  C1 to C8 bank was replaced by eight rounds with two or three targets each, every one listed;
+  any listed target counts as correct, and E1 reveals the others. The demo became
+  日、法、英 → 文、語 with near-miss 子: the user had approved 茶、酒、紙 → 杯 earlier the same
+  day, but 杯 is a T1 test target and 茶杯 a T1 component word, which the research item bank's
+  isolation rule (training items share no target or component word with test items) forbids.
+  Every round was checked against the MOE concise and revised dictionaries: no answer outside the
+  listed set is a T1 target, no listed word is a T1 component word, no two clues form a word, and
+  no round shares two clues with a CCRAP or NTNU 2009 template item. Words the other agents'
+  prompts already use (同學, 好奇, 意見, 決定) were excluded, because the pack test keeps bank
+  words out of every non-teacher prompt. The DA's "exactly one target" rule now asks for every
+  target. The isolation check must be rerun against the research team's T1 bank whenever either
+  changes.
 
 ## 16. Follow-ups
 
