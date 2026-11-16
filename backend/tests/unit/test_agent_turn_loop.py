@@ -1190,3 +1190,68 @@ def test_provider_message_no_excerpt_is_unchanged() -> None:
     msg = te.TurnEngine._provider_message(hm, uuid.uuid4(), {}, {}, attachment_blocks=None)
 
     assert msg == {"role": "user", "content": "plain message"}
+
+
+def _sa_names(hm: tx.HistoryMessage) -> dict[uuid.UUID, str]:
+    assert hm.sender_id is not None
+    return {hm.sender_id: "SA"}
+
+
+def _peer_message(*, modified: bool) -> tx.HistoryMessage:
+    return tx.HistoryMessage(
+        id=uuid.uuid4(),
+        sender_id=uuid.uuid4(),
+        role="agent",
+        content="Let us look at the clues again.",
+        metadata={"peer_review_id": str(uuid.uuid4()), "peer_review_modified": modified},
+        token_count=1,
+    )
+
+
+def test_a_peer_message_the_teacher_revised_is_marked_for_other_agents() -> None:
+    """CRAT lab trial fixes AC-11: the analyst blamed the student agent for words
+    the teacher agent had written in review."""
+    hm = _peer_message(modified=True)
+
+    msg = te.TurnEngine._provider_message(hm, uuid.uuid4(), _sa_names(hm), {})
+
+    assert msg["content"] == (
+        "SA (text revised by the teacher agent before posting): Let us look at the clues again."
+    )
+
+
+def test_an_approved_peer_message_carries_no_marker() -> None:
+    hm = _peer_message(modified=False)
+
+    msg = te.TurnEngine._provider_message(hm, uuid.uuid4(), _sa_names(hm), {})
+
+    assert msg["content"] == "SA: Let us look at the clues again."
+
+
+def test_the_peers_own_revised_message_stays_its_unprefixed_turn() -> None:
+    """Its own turns stay ``assistant`` and unprefixed; the modifications block
+    tells it what changed."""
+    hm = _peer_message(modified=True)
+    assert hm.sender_id is not None
+
+    msg = te.TurnEngine._provider_message(hm, hm.sender_id, {}, {})
+
+    assert msg == {"role": "assistant", "content": "Let us look at the clues again."}
+
+
+def test_the_analyst_sees_each_agent_message_id() -> None:
+    """Its notify tool takes ``about_message_id``; without the id on the
+    transcript it could not name the message it was reporting."""
+    hm = _peer_message(modified=True)
+
+    msg = te.TurnEngine._provider_message(hm, uuid.uuid4(), _sa_names(hm), {}, show_agent_message_ids=True)
+
+    assert msg["content"].startswith(f"[message_id {hm.id}] SA (text revised by the teacher agent")
+
+
+def test_agent_message_ids_are_not_shown_by_default() -> None:
+    hm = _peer_message(modified=False)
+
+    msg = te.TurnEngine._provider_message(hm, uuid.uuid4(), _sa_names(hm), {})
+
+    assert "message_id" not in msg["content"]

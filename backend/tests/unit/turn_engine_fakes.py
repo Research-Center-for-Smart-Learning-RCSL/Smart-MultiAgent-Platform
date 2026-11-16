@@ -301,7 +301,7 @@ def wire_engine(
     engine._stage_workspace_inputs = _no_staging  # type: ignore[attr-defined]
     engine._model_attachment_blocks = _empty_list  # type: ignore[attr-defined]
     engine._provider_message = (  # type: ignore[attr-defined]
-        lambda hm, aid, an, un, attachment_blocks=None: {"role": "user", "content": hm.content}
+        lambda hm, aid, an, un, attachment_blocks=None, **_kw: {"role": "user", "content": hm.content}
     )
     engine._dispatch_agent_message_signal = _signal  # type: ignore[attr-defined]
     engine._dispatch_agent_reply_wakeups = _wakeups  # type: ignore[attr-defined]

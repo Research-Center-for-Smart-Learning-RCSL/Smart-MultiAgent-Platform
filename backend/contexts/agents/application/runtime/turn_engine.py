@@ -506,6 +506,10 @@ def _one_line_label(label: str) -> str:
     return one_line_label(label)
 
 
+#: Rendered after the label of a peer message the teacher agent revised.
+_REVISED_BY_TEACHER_MARKER = "(text revised by the teacher agent before posting)"
+
+
 def _agent_label(agent_id: uuid.UUID | None, name: str | None) -> str:
     """An agent's turn prefix. The id stands in for a missing or blank-looking name
     so two unnamed agents do not read as one speaker; a turn with no visible prefix
@@ -3573,6 +3577,7 @@ class TurnEngine:
                             agent_names,
                             user_names,
                             attachment_blocks=attach_blocks if hm.id == history_attach_id else None,
+                            show_agent_message_ids=is_analyst,
                         )
                         for hm in stream_rows
                     ],
@@ -4901,8 +4906,17 @@ class TurnEngine:
         agent_names: dict[uuid.UUID, str],
         user_names: dict[uuid.UUID, str],
         attachment_blocks: list[dict[str, Any]] | None = None,
+        *,
+        show_agent_message_ids: bool = False,
     ) -> dict[str, Any]:
         """Map one history row to a provider message, prefixing the sender name.
+
+        Another agent's message the teacher agent revised in review is marked so
+        ([R34.06]): it is posted under the student agent's name, and a reader
+        judging the student agent must know the words are the teacher's.
+        ``show_agent_message_ids`` puts each other agent's message id on its
+        prefix, for the analyst, whose notify tool takes one as
+        ``about_message_id``.
 
         The running agent's own turns are left unprefixed (and stay ``assistant``)
         so the model does not learn to echo a ``Name:`` prefix in its reply.
@@ -4938,7 +4952,12 @@ class TurnEngine:
             if hm.sender_id == running_agent_id:
                 return {"role": "assistant", "content": hm.content}
             label = agent_names.get(hm.sender_id) if hm.sender_id is not None else None
-            content = f"{_agent_label(hm.sender_id, label)}: {_defang_notice_marker(hm.content)}"
+            prefix = _agent_label(hm.sender_id, label)
+            if show_agent_message_ids:
+                prefix = f"[message_id {hm.id}] {prefix}"
+            if hm.metadata.get("peer_review_modified") is True:
+                prefix = f"{prefix} {_REVISED_BY_TEACHER_MARKER}"
+            content = f"{prefix}: {_defang_notice_marker(hm.content)}"
             # Other agents are external actors from this agent's perspective;
             # mapping them to "user" prevents consecutive assistant turns which
             # the Anthropic and OpenAI APIs reject with a 400.

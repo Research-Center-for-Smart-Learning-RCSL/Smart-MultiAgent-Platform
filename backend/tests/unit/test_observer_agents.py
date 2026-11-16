@@ -2102,7 +2102,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
     engine._observer_memory_block = _memory  # type: ignore[attr-defined]
     engine._stream_with_tools = _stream  # type: ignore[attr-defined]
     engine._provider_message = (  # type: ignore[attr-defined]
-        lambda hm, aid, an, un, attachment_blocks=None: {"role": "user", "content": hm.content}
+        lambda hm, aid, an, un, attachment_blocks=None, **_kw: {"role": "user", "content": hm.content}
     )
 
     async def _boom(*a, **k):

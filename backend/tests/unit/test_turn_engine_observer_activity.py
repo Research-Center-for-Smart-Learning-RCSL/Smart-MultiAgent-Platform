@@ -267,7 +267,7 @@ def _wire_normal_engine(monkeypatch, agent, *, activity_block: str | None):
     engine._model_attachment_blocks = _empty_list  # type: ignore[attr-defined]
     engine._stream_with_tools = _stream  # type: ignore[attr-defined]
     engine._provider_message = (  # type: ignore[attr-defined]
-        lambda hm, aid, an, un, attachment_blocks=None: {"role": "user", "content": hm.content}
+        lambda hm, aid, an, un, attachment_blocks=None, **_kw: {"role": "user", "content": hm.content}
     )
     engine._dispatch_agent_message_signal = _noop  # type: ignore[attr-defined]
     engine._dispatch_agent_reply_wakeups = _noop  # type: ignore[attr-defined]

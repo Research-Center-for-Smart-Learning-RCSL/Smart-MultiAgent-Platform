@@ -794,7 +794,7 @@ def review_world(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     engine._room_guests = _guests
     engine._participant_labels = _labels
 
-    def _provider_message(hm: Any, aid: Any, an: Any, un: Any) -> dict[str, Any]:
+    def _provider_message(hm: Any, aid: Any, an: Any, un: Any, **_kw: Any) -> dict[str, Any]:
         return {"role": "user", "content": hm.content}
 
     engine._provider_message = _provider_message
