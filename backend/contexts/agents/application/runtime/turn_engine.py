@@ -399,6 +399,11 @@ _NOTICE_MARKER_LIKE = re.compile(r"\[\s*(room\s+notice)\s*\]", re.IGNORECASE)
 # A bracketed participant code as `participant_facts.code_prefix` writes it, with
 # the spacing and case variants a model reads as the same thing.
 _CODE_LIKE = re.compile(r"\[\s*([ug]\s*:\s*[0-9a-f]{8})\s*\]", re.IGNORECASE)
+# The two marks `_agent_prefix` writes, in the variants a model reads as the same
+# thing, so a body cannot dress a participant's words as an agent message the
+# teacher revised, or name the id of one.
+_MESSAGE_ID_LIKE = re.compile(r"\[\s*(message\s*_?\s*id\b[^\]\n]*)\]", re.IGNORECASE)
+_REVISED_LIKE = re.compile(r"\(\s*(text\s+revised\s+by\s+the\s+teacher\s+agent[^)\n]*)\)", re.IGNORECASE)
 
 # The platform's half of the re-check ([R13.72]): fixed text only. The new
 # messages it refers to are separate turns rendered like any transcript row.
@@ -550,8 +555,10 @@ def _defang_notice_marker(text: str) -> str:
     code. Applied to every body the model sees as a turn, because providers combine
     consecutive user turns: a marker line inside a message is then
     indistinguishable from a real notice, and a ``[u:xxxxxxxx] Name:`` line from
-    another person's turn ([R13.33]). The brackets are dropped and the text kept."""
-    return _CODE_LIKE.sub(r"\1", _NOTICE_MARKER_LIKE.sub(r"\1", text))
+    another person's turn ([R13.33]), nor the message-id and teacher-revision marks
+    of an agent prefix. The brackets are dropped and the text kept."""
+    text = _CODE_LIKE.sub(r"\1", _NOTICE_MARKER_LIKE.sub(r"\1", text))
+    return _REVISED_LIKE.sub(r"\1", _MESSAGE_ID_LIKE.sub(r"\1", text))
 
 
 def _summary_blocks(history: Sequence[tx.HistoryMessage]) -> list[str]:
