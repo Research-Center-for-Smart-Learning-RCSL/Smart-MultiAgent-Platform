@@ -129,6 +129,11 @@ async def dispatch_submission_received(
         active = await facade.get_active_activation(chatroom_id)
         if active is None:
             return
+        # A submission validated after its round ended must not open a window on
+        # the next round, anchored at a time before that round began.
+        session = await facade.get_session(submission.session_id)
+        if session is None or session.activation_id != active.id:
+            return
         key = _submission_window_key(active.id)
         if not await get_redis().set(key, "1", nx=True, ex=SUBMISSION_WAKE_WINDOW_SECONDS):
             return

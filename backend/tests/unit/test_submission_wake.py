@@ -28,6 +28,7 @@ _ROOM = uuid.uuid4()
 _ACTIVATION = uuid.uuid4()
 _TYPE = uuid.uuid4()
 _SUBMISSION = uuid.uuid4()
+_SESSION = uuid.uuid4()
 _T0 = dt.datetime(2026, 11, 10, 9, 0, tzinfo=dt.UTC)
 
 
@@ -139,9 +140,12 @@ def wired(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     enqueue = AsyncMock()
     facade = MagicMock(
         get_submission=AsyncMock(
-            return_value=SimpleNamespace(id=_SUBMISSION, chatroom_id=_ROOM, is_valid=True, created_at=_T0)
+            return_value=SimpleNamespace(
+                id=_SUBMISSION, chatroom_id=_ROOM, session_id=_SESSION, is_valid=True, created_at=_T0
+            )
         ),
         get_active_activation=AsyncMock(return_value=_activation()),
+        get_session=AsyncMock(return_value=SimpleNamespace(id=_SESSION, activation_id=_ACTIVATION)),
     )
     monkeypatch.setattr(platform_wakes, "get_redis", lambda: redis)
     monkeypatch.setattr(platform_wakes, "enqueue", enqueue)
@@ -174,10 +178,25 @@ class TestTheWindowClaim:
 
     async def test_the_window_is_per_activation(self, wired: SimpleNamespace) -> None:
         await _dispatch()
-        wired.facade.get_active_activation.return_value = _activation(id=uuid.uuid4())
+        next_round = uuid.uuid4()
+        wired.facade.get_active_activation.return_value = _activation(id=next_round)
+        wired.facade.get_session.return_value = SimpleNamespace(id=_SESSION, activation_id=next_round)
         await _dispatch()
 
         assert wired.enqueue.await_count == 2
+
+    async def test_a_submission_from_an_ended_round_opens_no_window_on_the_next(
+        self, wired: SimpleNamespace
+    ) -> None:
+        """Code review of the CRAT lab trial fixes: an asynchronously validated
+        submission from round 1 opened round 2's window, anchored at its own
+        created_at, so round 2's count took in everything since round 1."""
+        wired.facade.get_active_activation.return_value = _activation(id=uuid.uuid4())
+
+        await _dispatch()
+
+        wired.enqueue.assert_not_awaited()
+        assert wired.redis.keys == {}
 
     async def test_an_invalid_submission_opens_no_window(self, wired: SimpleNamespace) -> None:
         wired.facade.get_submission.return_value = SimpleNamespace(
