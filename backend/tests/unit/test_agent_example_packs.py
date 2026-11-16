@@ -865,7 +865,18 @@ def _bank_lines(teacher_key: str, letter: str) -> list[str]:
     return [line for line in _section(prompt, "題庫").splitlines() if re.match(rf"{letter}\d+\. ", line)]
 
 
-_CRAT_ROUND = re.compile(r"^C(\d+)\. 線索字：(.)、(.)、(.) → 目標字：(.)（(..)、(..)、(..)）$")
+_CRAT_ROUND = re.compile(r"^C(\d+)\. 線索字：(.)、(.)、(.) → 目標字：(.+)$")
+# One target and its three words; a round lists several, joined by "；".
+_CRAT_ANSWER = re.compile(r"^(.)（(..)、(..)、(..)）$")
+
+
+def _crat_answers(targets: str) -> list[tuple[str, tuple[str, str, str]]]:
+    answers = []
+    for part in targets.split("；"):
+        m = _CRAT_ANSWER.match(part)
+        assert m, part
+        answers.append((m.group(1), m.group(2, 3, 4)))
+    return answers
 _CHAR_ROUND = re.compile(r"^K(\d+)\. 部件：(.+?) ?→ 參考字：(.+)$")
 _OBJECT_ROUND = re.compile(r"^O(\d+)\. (.+?) → 參考用途：(.+)$")
 
@@ -876,7 +887,8 @@ def _bank_secrets() -> list[str]:
     for line in _bank_lines("ta-crat-teacher", "C"):
         m = _CRAT_ROUND.match(line)
         assert m, line
-        secrets.extend(m.group(6, 7, 8))
+        for _, words in _crat_answers(m.group(5)):
+            secrets.extend(words)
     for line in _bank_lines("ta-charbuilding-teacher", "K"):
         m = _CHAR_ROUND.match(line)
         assert m, line
@@ -1362,10 +1374,15 @@ class TestPhase2CoursePacks:
         targets = []
         for m in rounds:
             assert m
-            clues, target, words = m.group(2, 3, 4), m.group(5), m.group(6, 7, 8)
-            assert words == tuple(clue + target for clue in clues), f"C{m.group(1)}: words do not join"
-            targets.append(target)
-        assert len(set(targets)) == len(targets), "two CRAT rounds share a target"
+            clues = m.group(2, 3, 4)
+            answers = _crat_answers(m.group(5))
+            # CRAT lab trial fixes: a student stuck on one target needs a second road,
+            # so every round lists at least two.
+            assert len(answers) >= 2, f"C{m.group(1)}: one target only"
+            for target, words in answers:
+                assert words == tuple(clue + target for clue in clues), f"C{m.group(1)}: words do not join"
+                targets.append(target)
+        assert len(set(targets)) == len(targets), "two CRAT targets repeat"
 
     def test_character_bank_has_six_rounds_with_references(self) -> None:
         rounds = [_CHAR_ROUND.match(line) for line in _bank_lines("ta-charbuilding-teacher", "K")]
@@ -1412,7 +1429,8 @@ class TestPhase2CoursePacks:
 
     def test_crat_teacher_confirms_matches_and_routes_differences(self) -> None:
         prompt = self._agent("ta-crat-teacher").system_prompt
-        assert "提交的目標字和題庫答案相同 → 告訴小組答對了" in prompt
+        assert "提交的目標字是題庫列出的其中一個 → 告訴小組答對了" in prompt
+        assert "公布題庫列出的其他目標字和它們的三個詞" in prompt
         assert "不要直接判錯" in prompt
         # Phase 4 Q-8: TA judges a differing answer itself; the creator may overrule.
         assert "再由你自己逐一檢查這一組的字和三個線索字分別組成的詞" in prompt
@@ -1741,12 +1759,12 @@ class TestPhase3CoursePacks:
     def test_crat_teacher_closes_only_after_the_last_bank_round(self) -> None:
         """Phase 4 D-29: after C7 TA called the bank used up and closed the class a round early."""
         prompt = self._agent("ta-crat-teacher").system_prompt
-        assert _bank_lines("ta-crat-teacher", "C")[-1].startswith("C8. 線索字：饅、碼、枕")
+        assert _bank_lines("ta-crat-teacher", "C")[-1].startswith("C8. 線索字：啟、批、揭")
         e2 = _section(prompt, "步驟E2")
         assert e2.index("先判斷<題庫>是不是用完了") < e2.index("請你執行以下條件式")
         assert "用你公布剛講評這一題時的三個線索字，對照<題庫>找出它是哪一題" in e2
         assert "不要用提交次數或你記得出過幾題推算" in e2
-        assert "剛講評的是<題庫>的最後一題 C8（線索字饅、碼、枕）→ <題庫>的題目都出過了" in e2
+        assert "剛講評的是<題庫>的最後一題 C8（線索字啟、批、揭）→ <題庫>的題目都出過了" in e2
         assert "剛講評的是 C1 到 C7 → <題庫>一定還有沒出過的題目" in e2
         control = _section(prompt, "活動控制")
         assert (
@@ -2163,11 +2181,12 @@ class TestCratLabTrialPrompts:
 
     def test_the_demo_is_fixed_and_its_near_miss_fails_on_one_clue(self) -> None:
         a2 = _section(self._prompt("ta-crat-teacher"), "步驟A2")
-        assert "示範題：線索字 茶、酒、紙 → 目標字：杯（茶杯、酒杯、紙杯）" in a2
-        assert "「酒壺」可以，但「紙壺」不是詞" in a2
+        assert "示範題：線索字 日、法、英 → 目標字：文（日文、法文、英文）；語（日語、法語、英語）" in a2
+        assert "「法子」可以，但「英子」不是詞" in a2
+        assert "這種題目常常不只一個答案" in a2
         assert "不要自己換題" in a2
         bank = "\n".join(_bank_lines("ta-crat-teacher", "C"))
-        for char in ("茶", "酒", "紙", "杯"):
+        for char in ("日", "法", "英", "文", "語", "子"):
             assert char not in bank, char
 
     def test_the_teacher_talks_less(self) -> None:
@@ -2234,7 +2253,7 @@ class TestCratLabTrialPrompts:
     def test_the_teacher_reviews_the_peer_as_a_teammate(self) -> None:
         review = _section(self._prompt("ta-crat-teacher"), "審閱同儕代理的回覆")
         assert "SA 是小組的一員" in review
-        assert "不是<題庫>這一題的答案 → 照原樣放行" in review
+        assert "不是<題庫>這一題列出的任何一個目標字 → 照原樣放行" in review
         assert "而學生還沒有人提過 → 退回，不要修改" in review
         assert "修改後的文字不能再提到你刪掉的內容" in review
 
