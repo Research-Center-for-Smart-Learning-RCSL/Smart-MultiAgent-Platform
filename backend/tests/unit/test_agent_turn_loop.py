@@ -1255,3 +1255,15 @@ def test_agent_message_ids_are_not_shown_by_default() -> None:
     msg = te.TurnEngine._provider_message(hm, uuid.uuid4(), _sa_names(hm), {})
 
     assert "message_id" not in msg["content"]
+
+
+def test_the_budget_counts_the_marker_and_the_message_id() -> None:
+    """The prefix cost is counted from the same prefix the transcript renders."""
+    hm = _peer_message(modified=True)
+    names = _sa_names(hm)
+
+    rendered = te.TurnEngine._provider_message(hm, uuid.uuid4(), names, {}, show_agent_message_ids=True)
+    cost = te._prefix_tokens([hm], uuid.uuid4(), names, {}, show_agent_message_ids=True)
+
+    assert cost == tx.estimate_tokens(rendered["content"].removesuffix(hm.content))
+    assert cost > te._prefix_tokens([_peer_message(modified=False)], uuid.uuid4(), names, {})

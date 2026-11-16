@@ -510,6 +510,17 @@ def _one_line_label(label: str) -> str:
 _REVISED_BY_TEACHER_MARKER = "(text revised by the teacher agent before posting)"
 
 
+def _agent_prefix(hm: tx.HistoryMessage, name: str | None, *, show_message_id: bool) -> str:
+    """Another agent's turn prefix: its label, the message id when asked for, and the
+    revision marker when the teacher agent rewrote the message in review."""
+    prefix = _agent_label(hm.sender_id, name)
+    if show_message_id:
+        prefix = f"[message_id {hm.id}] {prefix}"
+    if hm.metadata.get("peer_review_modified") is True:
+        prefix = f"{prefix} {_REVISED_BY_TEACHER_MARKER}"
+    return prefix
+
+
 def _agent_label(agent_id: uuid.UUID | None, name: str | None) -> str:
     """An agent's turn prefix. The id stands in for a missing or blank-looking name
     so two unnamed agents do not read as one speaker; a turn with no visible prefix
@@ -558,6 +569,8 @@ def _prefix_tokens(
     running_agent_id: uuid.UUID,
     agent_names: Mapping[uuid.UUID, str],
     user_names: Mapping[uuid.UUID, str],
+    *,
+    show_agent_message_ids: bool = False,
 ) -> int:
     """What the sender prefixes `_provider_message` adds cost. `token_count`
     covers a row's body only."""
@@ -568,7 +581,8 @@ def _prefix_tokens(
         if hm.role == "user" and hm.sender_id in user_names:
             total += tx.estimate_tokens(f"{user_names[hm.sender_id]}: ")
         elif hm.role == "agent" and hm.sender_id != running_agent_id:
-            total += tx.estimate_tokens(f"{_agent_label(hm.sender_id, agent_names.get(hm.sender_id))}: ")
+            prefix = _agent_prefix(hm, agent_names.get(hm.sender_id), show_message_id=show_agent_message_ids)
+            total += tx.estimate_tokens(f"{prefix}: ")
     return total
 
 
@@ -3565,7 +3579,9 @@ class TurnEngine:
                     + sum(h.token_count for h in stream_rows)
                     + _gap_notice_tokens(stream_rows)
                     + sum(tx.estimate_tokens(notice["content"]) for _, notice in arrivals)
-                    + _prefix_tokens(stream_rows, agent.id, agent_names, user_names)
+                    + _prefix_tokens(
+                        stream_rows, agent.id, agent_names, user_names, show_agent_message_ids=is_analyst
+                    )
                 )
                 total_budget = ctxmod.knowledge_budget(
                     ceiling=ceiling,
@@ -3871,6 +3887,7 @@ class TurnEngine:
                     rounds_used=rounds,
                     dispatched_tools=dispatched_tools,
                     observation_blocks=observation_blocks,
+                    show_agent_message_ids=is_analyst,
                 )
                 if rechecked is not None:
                     recheck_claim = rechecked.claim
@@ -5000,11 +5017,7 @@ class TurnEngine:
             if hm.sender_id == running_agent_id:
                 return {"role": "assistant", "content": hm.content}
             label = agent_names.get(hm.sender_id) if hm.sender_id is not None else None
-            prefix = _agent_label(hm.sender_id, label)
-            if show_agent_message_ids:
-                prefix = f"[message_id {hm.id}] {prefix}"
-            if hm.metadata.get("peer_review_modified") is True:
-                prefix = f"{prefix} {_REVISED_BY_TEACHER_MARKER}"
+            prefix = _agent_prefix(hm, label, show_message_id=show_agent_message_ids)
             content = f"{prefix}: {_defang_notice_marker(hm.content)}"
             # Other agents are external actors from this agent's perspective;
             # mapping them to "user" prevents consecutive assistant turns which
@@ -5295,6 +5308,7 @@ class TurnEngine:
         rounds_used: int,
         dispatched_tools: set[str],
         observation_blocks: list[dict[str, Any]],
+        show_agent_message_ids: bool = False,
     ) -> _Recheck | None:
         """Show the agent its unposted draft and what arrived since, once ([R13.72]).
 
@@ -5335,7 +5349,11 @@ class TurnEngine:
                 notice = _gap_notice(previous, row) if previous is not None else None
                 if notice is not None:
                     rendered.append(notice)
-                rendered.append(self._provider_message(row, agent.id, agent_names, user_names))
+                rendered.append(
+                    self._provider_message(
+                        row, agent.id, agent_names, user_names, show_agent_message_ids=show_agent_message_ids
+                    )
+                )
                 previous = row
             messages.append({"role": "assistant", "content": draft})
             messages.extend(rendered)
