@@ -1672,20 +1672,22 @@ class TestPhase3CoursePacks:
             "若這一題的提案被否決或過期 →",
             "→ 回到<步驟C1>。",
             "若這一題已經提交 → 繼續執行<主流程E>。",  # submitted
-            # One activation spans every round, so the block holds earlier rounds too.
-            "可能包含前幾題的提案和提交",
+            # CRAT lab trial fixes M6: each round is its own activation, so the
+            # block holds this round only.
+            "每一題各自是一次活動",
         ):
             assert branch in d1, f"D1 lacks: {branch}"
 
-    def test_crat_judges_only_a_submission_made_after_the_round_was_revealed(self) -> None:
-        """Phase 4 D-28: a round-4 resubmission made the count rule run one round ahead,
-        so round 7 was judged on round 6's target before the group submitted."""
+    def test_crat_judges_any_valid_submission_of_the_rounds_activation(self) -> None:
+        """Phase 4 D-28 counted rounds from submissions; CRAT lab trial fixes M6 gives
+        each round its own activation, so every valid submission in it is this round's,
+        individual or group, and the late-submission rules have nothing left to sort."""
         prompt = self._agent("ta-crat-teacher").system_prompt
         d1 = _section(prompt, "步驟D1")
         assert "提交次數已經達到" not in prompt
-        assert "你公布這一題線索字的那則訊息之後，出現了這一組的提交通知" in d1
-        assert "不要用提交次數推算" in d1
-        assert "就是前一題補交的，也不算這一題的提交，不要講評它" in d1
+        assert "這一次活動裡有任何一筆有效的提交，不論是個人提交還是小組提交" in d1
+        assert "補交" not in prompt
+        assert "前幾題" not in prompt
         e1 = _section(prompt, "步驟E1")
         assert "<步驟D1>判斷為這一題提交的那一列" in e1
 
@@ -1729,7 +1731,7 @@ class TestPhase3CoursePacks:
         prompt = self._agent("ta-crat-teacher").system_prompt
         control = _section(prompt, "活動控制")
         assert "<題庫>的題目都出過了，或系統指出的討論室建立者表示要下課時（<步驟E2>）" in control
-        assert "這一次活動涵蓋這堂課的每一題" in control
+        assert "每一題各自是一次活動，講評完這一題（<步驟E2>）就結束它" in control
         assert "只在討論室建立者確認這是最後一輪之後" not in control
         assert "確認所有小組都已提交後才結束活動" not in control
         # With no teacher present, a paused silence trigger would stall the class.
@@ -1747,7 +1749,9 @@ class TestPhase3CoursePacks:
         assert "剛講評的是<題庫>的最後一題 C8（線索字饅、碼、枕）→ <題庫>的題目都出過了" in e2
         assert "剛講評的是 C1 到 C7 → <題庫>一定還有沒出過的題目" in e2
         control = _section(prompt, "活動控制")
-        assert "剛講評的是 C1 到 C7 時，<題庫>還沒用完，不要結束活動" in control
+        assert (
+            "剛講評的是 C1 到 C7 時，<題庫>還沒用完：結束這一題的活動之後要接著開下一題，不要下課" in control
+        )
 
     def test_crat_teacher_judges_a_submission_in_any_discussion_step(self) -> None:
         """Phase 4 D-30: a wrong target arrived during C2 and TA kept the group discussing it."""
@@ -2141,3 +2145,128 @@ class TestLoaderRejectsAMalformedPack:
         """The install route takes this from an HTTP path parameter."""
         with pytest.raises(PackFileInvalid, match="not a valid pack key"):
             load_pack(pack_key, root=tmp_path)
+
+
+class TestCratLabTrialPrompts:
+    """CRAT lab trial fixes M6 (AC-13): one assertion per rule the 2026-11-10 trial
+    asked of the CRAT prompts. Spec: ``docs/tasks/2026-11-10-crat-lab-trial-fixes/spec.md``."""
+
+    @staticmethod
+    def _prompt(key: str) -> str:
+        return next(a for _, a in SHIPPED_AGENTS if a.key == key).system_prompt
+
+    def test_the_opening_is_short_and_questions_get_a_direct_answer(self) -> None:
+        prompt = self._prompt("ta-crat-teacher")
+        assert "用不超過三句話" in _section(prompt, "步驟A1")
+        assert "有人直接問你問題時（例如「這是題目嗎？」" in prompt
+        assert "有人問「這是題目嗎」" in _section(prompt, "步驟A2")
+
+    def test_the_demo_is_fixed_and_its_near_miss_fails_on_one_clue(self) -> None:
+        a2 = _section(self._prompt("ta-crat-teacher"), "步驟A2")
+        assert "示範題：線索字 茶、酒、紙 → 目標字：杯（茶杯、酒杯、紙杯）" in a2
+        assert "「酒壺」可以，但「紙壺」不是詞" in a2
+        assert "不要自己換題" in a2
+        bank = "\n".join(_bank_lines("ta-crat-teacher", "C"))
+        for char in ("茶", "酒", "紙", "杯"):
+            assert char not in bank, char
+
+    def test_the_teacher_talks_less(self) -> None:
+        prompt = self._prompt("ta-crat-teacher")
+        assert "每一輪發言的固定結構" not in prompt
+        assert "自由討論時一則最多兩句" in prompt
+        assert "不要每一則都把目前的候選字列一遍" in prompt
+        # Named once, in the rule that forbids saying it.
+        assert prompt.count("聯想路徑") == 1
+        assert "不要說「你的聯想路徑是什麼」" in prompt
+
+    def test_an_answer_with_its_three_words_goes_straight_to_confirmation(self) -> None:
+        prompt = self._prompt("ta-crat-teacher")
+        for step in ("步驟B1", "步驟C1"):
+            assert "有人提出一個字和它的三個詞，或兩位以上同學提出同一個字" in _section(prompt, step), step
+        c2 = _section(prompt, "步驟C2")
+        assert "三個詞都已經有人說出來時，不用再請大家一個一個驗證" in c2
+        assert "不要再把它拿出來重新討論" in c2
+
+    def test_each_round_is_its_own_activation_with_the_clues_as_brief(self) -> None:
+        prompt = self._prompt("ta-crat-teacher")
+        b1 = _section(prompt, "步驟B1")
+        assert "brief 只寫題號和三個線索字" in b1
+        assert "不要寫目標字或任何一個詞" in b1
+        assert "先用 end_activity 結束這一題的活動，再用 start_activity 開始下一題的活動" in prompt
+        assert "在同一輪呼叫它結束這一題的活動" in _section(prompt, "步驟E2")
+        assert "這一次活動的每一筆有效提交都要講到" in _section(prompt, "步驟E1")
+
+    def test_voting_is_mentioned_only_in_group_mode(self) -> None:
+        from contexts.activities.application import activity_context_provider as acp
+
+        d1 = _section(self._prompt("ta-crat-teacher"), "步驟D1")
+        group = next(line for line in d1.splitlines() if "投票選項" in line)
+        assert group.startswith("[Activity state]")
+        assert "group activity" in group
+        individual = next(line for line in d1.splitlines() if "individual activity" in line)
+        assert "不要提投票" in individual
+        # The mode words the prompt keys on are the ones the state block renders.
+        source = pathlib.Path(acp.__file__).read_text(encoding="utf-8")
+        assert '"individual activity: ' in source
+        assert '"group activity' in source
+
+    def test_the_submission_wake_matches_the_platform_wording(self) -> None:
+        from types import SimpleNamespace
+
+        from contexts.activities.application.platform_events import submission_notice
+        from contexts.agents.application.runtime.turn_engine import _ROOM_NOTICE_MARKER, _WAKE_REASONS
+
+        rules = _section(self._prompt("ta-crat-teacher"), "通用規則")
+        named: Any = SimpleNamespace(name="…")
+        emitted = submission_notice(named, in_window=7, in_round=9)
+        assert f"{_ROOM_NOTICE_MARKER} {emitted.replace('7', 'N').replace('9', 'M')}" in rules
+        assert f"You were woken by {_WAKE_REASONS['submission_received']}." in rules
+
+    def test_the_creator_is_answered_only_when_addressed_and_never_a_student(self) -> None:
+        prompt = self._prompt("ta-crat-teacher")
+        assert "系統指出的討論室建立者是帶班教師，不是學生。不要稱他為同學" in prompt
+        assert "或給流程上的指示（時間到、換下一題、再等一下、下課）時，回應他" in prompt
+        assert "不要把它算成哪位學生的想法" in prompt
+
+    def test_the_teacher_replies_in_the_participants_language(self) -> None:
+        assert "參與者用哪一種語言對你說話，就用那種語言回他" in self._prompt("ta-crat-teacher")
+
+    def test_the_teacher_reviews_the_peer_as_a_teammate(self) -> None:
+        review = _section(self._prompt("ta-crat-teacher"), "審閱同儕代理的回覆")
+        assert "SA 是小組的一員" in review
+        assert "不是<題庫>這一題的答案 → 照原樣放行" in review
+        assert "而學生還沒有人提過 → 退回，不要修改" in review
+        assert "修改後的文字不能再提到你刪掉的內容" in review
+
+    def test_the_peer_knows_its_replies_are_reviewed(self) -> None:
+        prompt = self._prompt("sa-crat-peer")
+        assert "你的回覆會先經過審閱" in prompt
+        assert "照常提出你想到的候選字和想法" in prompt
+        assert "照同學看到的版本接著說" in prompt
+
+    def test_the_analyst_reads_the_revision_marker_and_message_ids(self) -> None:
+        import uuid
+
+        from contexts.agents.application.runtime import transcript as tx
+        from contexts.agents.application.runtime.turn_engine import _REVISED_BY_TEACHER_MARKER, TurnEngine
+
+        prompt = self._prompt("aa-crat-analyst")
+        assert f"`{_REVISED_BY_TEACHER_MARKER}`" in prompt
+        assert "不要算到 SA 頭上" in prompt
+        assert "`[message_id …]` 就是它的 id" in prompt
+        row = tx.HistoryMessage(
+            id=uuid.uuid4(), sender_id=uuid.uuid4(), role="agent", content="x", metadata={}, token_count=1
+        )
+        rendered = TurnEngine._provider_message(row, uuid.uuid4(), {}, {}, show_agent_message_ids=True)
+        assert rendered["content"].startswith(f"[message_id {row.id}] ")
+
+    def test_the_designer_drops_the_stale_rules(self) -> None:
+        prompt = self._prompt("da-crat-designer")
+        assert "平台目前沒有這類工具" not in prompt
+        assert "寫成由真人教師確認" not in prompt
+        assert "交給教師判斷是否也成立" not in prompt
+        assert "由教師代理自己逐一檢查那個字和三個線索字組成的詞" in prompt
+        assert "**同儕代理的回覆審閱**" in prompt
+        rules = _section(prompt, "提示詞規範")
+        numbers = [int(n) for n in re.findall(r"^(\d+)\. ", rules, re.MULTILINE)]
+        assert numbers == list(range(1, len(numbers) + 1))
