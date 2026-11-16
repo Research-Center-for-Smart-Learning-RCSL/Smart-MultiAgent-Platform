@@ -360,15 +360,15 @@ blocks):
 
 ## 7. NFR Checklist
 
-- [ ] i18n: the panel brief label and any room-group label in en and zh-TW.
-- [ ] Audit log: brief presence and length on activation start; proposal and vote audits carry
+- [x] i18n: the panel brief label and any room-group label in en and zh-TW.
+- [x] Audit log: brief presence and length on activation start; proposal and vote audits carry
   `actor_guest_room_id` for guests; the submission wake writes no audit row (like the existing
   platform wakes).
-- [ ] Tenant isolation: the room source admits only callers who pass room access; the presence
+- [x] Tenant isolation: the room source admits only callers who pass room access; the presence
   snapshot is room-scoped; no new cross-project read.
-- [ ] Error handling UX: proposal errors for a creator trying to propose in a room group are a
+- [x] Error handling UX: proposal errors for a creator trying to propose in a room group are a
   problem+json 403 with a specific type; the panel shows the brief only when present.
-- [ ] Performance: one presence read per proposal; the wake window caps teacher turns at one per
+- [x] Performance: one presence read per proposal; the wake window caps teacher turns at one per
   20 seconds per activation; one extra join in the export query.
 
 ## 8. Security Considerations
@@ -416,39 +416,39 @@ blocks):
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: A creator room message sent before the alert is viewed leaves `first_action_at` null;
+- [x] AC-1: A creator room message sent before the alert is viewed leaves `first_action_at` null;
   the creator's next room message after the view sets it. Release or delete of an unviewed alert
   sets both `first_viewed_at` (via panel) and the action.
-- [ ] AC-2: `start_activity` and the human start route accept an optional brief of at most 200
+- [x] AC-2: `start_activity` and the human start route accept an optional brief of at most 200
   characters; longer or control-character input is refused with a clear tool error or 422; the
   brief is stored, returned by the active read, carried by the started broadcast, and shown at the
   top of the activity panel as plain text.
-- [ ] AC-3: `[Activity state]` shows the brief of the running activation as one quoted line for
+- [x] AC-3: `[Activity state]` shows the brief of the running activation as one quoted line for
   every agent role.
-- [ ] AC-4: A repeat `start_activity` of the running type returns an "already running" result and
+- [x] AC-4: A repeat `start_activity` of the running type returns an "already running" result and
   changes nothing.
-- [ ] AC-5: Each submissions CSV carries `round_code`, `round_started_at` and `round_brief`, with no
+- [x] AC-5: Each submissions CSV carries `round_code`, `round_started_at` and `round_brief`, with no
   full UUID, and the manifest `schema_version` is bumped.
-- [ ] AC-6: Ending an activation and starting the next in one turn clears every participant's form
+- [x] AC-6: Ending an activation and starting the next in one turn clears every participant's form
   (component test keyed on activation).
-- [ ] AC-7: In a room with no bound Member Group, a guest proposes a group answer; other connected
+- [x] AC-7: In a room with no bound Member Group, a guest proposes a group answer; other connected
   guests and users see the payload card, vote, and the proposal is accepted at the type's fraction
   of the pinned set; the room creator cannot propose or vote; the resulting submission records the
   guest proposer with `producer_kind=guest` and the session with `group_kind=room`.
-- [ ] AC-8: A room with a bound live Member Group behaves exactly as before (existing group tests
+- [x] AC-8: A room with a bound live Member Group behaves exactly as before (existing group tests
   pass unchanged).
-- [ ] AC-9: The state block for a room-group activation lists the room group's proposals and
+- [x] AC-9: The state block for a room-group activation lists the room group's proposals and
   submissions under a `g:` code with the room name in the legend.
-- [ ] AC-10: A valid submission wakes each activity-granted binding once per 20-second window with
+- [x] AC-10: A valid submission wakes each activity-granted binding once per 20-second window with
   the submission notice; several submissions within the window produce one wake; an invalid or
   pending submission produces none; a submission that claimed the all-submitted wake produces no
   second wake; a closed room produces none.
-- [ ] AC-11: The teacher's review frame and tool description state that a modified text must not
+- [x] AC-11: The teacher's review frame and tool description state that a modified text must not
   claim removed content; a peer's later turn includes its modified replies; the analyst's
   transcript marks a modified peer message as the teacher agent's revision and shows message ids.
-- [ ] AC-12: A unit test reproducing the 11:58 sequence (an analyst-notice turn rechecking over a
+- [x] AC-12: A unit test reproducing the 11:58 sequence (an analyst-notice turn rechecking over a
   creator message, then that message's creator wake) posts one reply.
-- [ ] AC-13: The CRAT TA prompt meets every M6 bullet, keeps the pinned intent anchors, and the
+- [x] AC-13: The CRAT TA prompt meets every M6 bullet, keeps the pinned intent anchors, and the
   pack tests are updated so each M6 rule has an assertion; SA, AA and DA prompts meet their M6
   bullets.
 - [ ] AC-14: Staging retrial through a guest link with at least three participants and two puzzles,
@@ -527,13 +527,38 @@ reading the room see a modified reply marked as the teacher agent's revision."
 
 ## 14. Open Questions
 
-- Which recheck or follow-up path let the 11:58:42 creator wake run after the 11:58:36 recheck
-  showed its message (§4.7)? AC-12's reproduction settles it before the fix is chosen.
-- The exact demo puzzle and near-miss for A2 need a human check of the words before M6 ships.
+- Resolved (D-1): the 11:58:36 re-check never showed the creator's message; see D-1.
+- The A2 demo puzzle chosen in M6 (茶、酒、紙 → 杯, near-miss 壺: 茶壺 and 酒壺 are words, 紙壺 is
+  not) still needs a human check of the words before the retrial (AC-14).
 
 ## 15. Deviation Log
 
-None yet.
+- D-1 (AC-12, M5): The staging worker log for room a3b76882 shows the analyst-notice turn
+  (job 11c02590) popped the parked trigger and took its re-check snapshot before the creator's
+  11:58:34 message committed, so the re-check never showed that message and nothing marked it
+  covered. The creator wake (job 4fe0987f) parked behind the turn at 11:58:34.57, and the drain's
+  follow-up (job fea3877c) answered it at 11:58:42. The path §4.7 suspected (a re-check that showed
+  the message, then its wake) already yields one reply through the covered skip. The user chose
+  (2026-11-16) to tell the model rather than skip deterministically: when the message that woke a
+  turn has a later reply from the same agent, the time note says so with both times and tells the
+  agent to reply with nothing if that reply already answers it. AC-12's test reproduces the real
+  sequence; a second test pins the covered path.
+- D-2 (M3): Owners-only rooms are treated as room-group rooms alongside rooms that do not admit
+  Member Groups, since neither can host a Member Group submission ([R30.49] names the second case
+  only).
+- D-3 (M3, security audit): The room-group proposal listing returns a proposal only to its
+  pinned voters and the room creator, matching the single read; a participant who joined after
+  the ballot was pinned sees the room group as eligible but no open proposal (FU-6).
+- D-4 (M5, security audit): Message bodies lose the brackets and parentheses of the new
+  `[message_id ...]` prefix and the teacher-revision mark, as they already did for the room notice
+  marker and participant codes; §8 called both "platform-generated" but a body could spell them.
+- D-5 (M5): `resolve_member_group_names` resolves any id no Member Group holds as a room, instead
+  of taking the room id from each caller, so the dashboard watchlist names room-group rows too.
+- D-6 (M6): Each puzzle runs as its own activation (B1 starts it with the clues as brief, E2 ends
+  it), so D1 reads any valid submission of the current activation as this puzzle's and the
+  earlier-round and late-submission rules are removed; four pack tests that pinned the
+  single-activation rules were rewritten to pin the new ones. The TA prompt grew from 15,577 to
+  about 17,300 characters, mostly the review section and the fixed demo.
 
 ## 16. Follow-ups
 
@@ -543,3 +568,30 @@ None yet.
   the undecided count.
 - FU-3: Rooms with bound Member Groups where some participants are in no group still give those
   participants nothing; consider an individual fallback line in the state block.
+- FU-4 (security MEDIUM): `submission_received` is a platform trigger, so it bypasses autostop and
+  can fire every 20 seconds for a whole untimed round; a participant scripting valid submissions
+  drives about 180 teacher turns an hour on the teacher's key. Cap submission wakes per activation
+  or count them toward autostop.
+- FU-5 (security MEDIUM): A room-group ballot is everyone connected, and the guest link mints a
+  new guest session per fresh browser id up to the room's guest cap, so one person with several
+  guest sessions can carry a room-group vote. Decide whether to accept this as a documented limit
+  of anonymous voting or bound guest weight.
+- FU-6: A participant not pinned on the open room proposal (late joiner) sees the propose form,
+  and proposing fails because one proposal is already open; the panel should say a vote is in
+  progress among the people present when it started.
+- FU-7 (quality Warning): The submission wake's window is anchored at the first submission's
+  `created_at` with no upper bound, so a submission between the Redis claim's expiry and the
+  deferred job, or an asynchronously validated one, can be counted in two windows' "N new". Count a
+  bounded window or keep a per-activation watermark of the reported total.
+- FU-8 (quality Info): `ActivitySession.group_kind` is persisted but not read; the human start
+  route drops a brief sent to an already running type without saying so; `untold_rejections`
+  now serves modifications too under its old name and partial index; the brief limits are
+  restated in the tool description and `ActivityPanel.vue` instead of derived from
+  `MAX_BRIEF_CHARS`.
+- FU-9 (pre-existing): The "all-submitted, else submission wake" decision is written in both the
+  submit route and the validator worker; one `platform_wakes` entry point would keep them from
+  diverging.
+- FU-10 (pre-existing, tests): `test_activities_services.py::TestRegistry::test_list_registered_returns_id_and_title_sorted`
+  fails when run after tests that register validators (a `-k` selection), and
+  `AgentToolsView.test.ts` failed twice under full-suite load and passed alone; both pass in
+  their normal runs.
