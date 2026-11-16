@@ -573,6 +573,12 @@ reading the room see a modified reply marked as the teacher agent's revision."
   words out of every non-teacher prompt. The DA's "exactly one target" rule now asks for every
   target. The isolation check must be rerun against the research team's T1 bank whenever either
   changes.
+- D-8 (code review, 2026-11-16): A submission window now opens only when the submission's session
+  belongs to the running activation; an asynchronously validated submission from an ended round
+  had opened the next round's window anchored before that round began. The review's claim that a
+  read-only connected principal takes a room-group ballot it cannot cast was checked and rejected:
+  `ensure_can_read` and `ensure_can_send` apply the same room-flag matrix and admin bypass, so
+  anyone presence reports can also vote.
 
 ## 16. Follow-ups
 
@@ -609,3 +615,12 @@ reading the room see a modified reply marked as the teacher agent's revision."
   fails when run after tests that register validators (a `-k` selection), and
   `AgentToolsView.test.ts` failed twice under full-suite load and passed alone; both pass in
   their normal runs.
+
+- FU-11 (code review): A room-group proposal opened before a Member Group is bound can still be
+  accepted afterwards, since `vote` and `_settle` do not re-check `room_group_applies`; the round
+  then mixes a room-group submission with member-group ones and the listing hides the proposal.
+- FU-12 (code review): The body defang misses spellings a model reads the same way, such as
+  `[message-id ...]` and a square-bracketed or full-width-parenthesised revision mark.
+- FU-13 (code review): `resolve_member_group_names` infers a room group by retrying unresolved ids
+  as chatroom ids; the stored `group_kind` should decide. A room-group proposal reads the chatroom
+  three times, and a group-round agent turn spends three or four queries deciding the mode.
