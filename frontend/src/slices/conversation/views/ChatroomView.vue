@@ -921,6 +921,18 @@ watch(railTabs, (tabs) => {
     railTab.value = 'people'
   }
 })
+// A round starting is the one moment the class has to act, and the form lives in
+// this tab; leaving the selection on People made every participant find it by
+// hand (CRAT lab retrial). Keyed on the activation id, so a later tab choice
+// stands until the next round starts. Only the selection moves: the mobile and
+// tablet drawer is left closed so it never covers a message being typed.
+watch(
+  () => activitiesStore.getActivation(chatroomId)?.id,
+  (activationId) => {
+    if (activationId) railTab.value = 'activity'
+  },
+  { immediate: true },
+)
 // W-3 (B.3/B.8): the panel is only actually visible when the Observer tab is
 // selected AND its container is on screen — the desktop rail is always shown,
 // but on mobile/tablet the tab lives inside the people drawer. Tracking railTab
