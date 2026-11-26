@@ -456,6 +456,13 @@ blocks):
   the TA debriefs within 60 seconds of each accepted submission and ends the round; the TA's total
   text is at most the students' total text; no two TA messages are posted within 10 seconds of
   each other; the research export separates the two puzzles by `round_code`.
+- [x] AC-15: When a round starts, the right rail selects the Activity tab; a tab the user picks
+  afterwards stays selected until the next round starts; the mobile and tablet drawer is not
+  opened.
+- [x] AC-16: The CRAT TA prompt carries the route-switching guidance of D-9 (a once-only request
+  for a second answer, three graded stuck hints, a debrief that models an untaken route, no
+  forced single answer when two are verified), the guidance leaks no bank answer, and the DA
+  prompt requires it in teacher drafts.
 
 ## 12. Test Plan
 
@@ -474,6 +481,9 @@ blocks):
 - AC-12: unit test in `test_reply_recheck.py`.
 - AC-13: `test_agent_example_packs.py`.
 - AC-14: manual staging run with the user, data read from the staging database and export.
+- AC-15: `ChatroomViewActivityTab.test.ts` (four cases, two fail without the watcher).
+- AC-16: `TestCratFlexibilityGuidance` in `test_agent_example_packs.py` (eleven cases, all fail
+  on the previous packs).
 
 ## 13. SRS Delta
 
@@ -579,6 +589,23 @@ reading the room see a modified reply marked as the teacher agent's revision."
   read-only connected principal takes a room-group ballot it cannot cast was checked and rejected:
   `ensure_can_read` and `ensure_can_send` apply the same room-flag matrix and admin bypass, so
   anyone presence reports can also vote.
+- D-9 (first staging retrial, user decision): The retrial showed two gaps. The rail stayed on
+  People when a round began, because `activity.activation.started` only fed the store and
+  nothing moved `railTab` (`ChatroomView.vue`); a watcher on the activation id now selects the
+  Activity tab (AC-15). The teacher agent asked almost only whether candidates fit, and with two
+  answers on the table in round 1 asked the group to pick one. The user chose the full
+  three-part guidance (AC-16): a once-only "find another" invitation before submission,
+  three graded hints (a question about their route, a general method, a direction that never
+  names the target), and a debrief that models an untaken route. The C2 rule against reopening an
+  agreed answer stands; the invitation is the single exception. Basis: the literature was read
+  as search abstracts and secondary citations, not full texts: misleading first cues persist as
+  fixation and fade with time (Smith and Blankenship, 1991), metacognitive prompts beat
+  encouragement alone on insight problems (a Five-Square study), cognitive-strategy creativity
+  training is at least as effective as idea-production training but is usually long (Scott,
+  Leritz and Mumford, 2004), and a 2021 review of Chinese RAT studies names frame-breaking and
+  representation shifts as the core process without listing guidance methods. No study found
+  compares "switch strategy" prompts directly. The guidance is therefore a design hypothesis
+  for the research team to confirm, not an established protocol.
 
 ## 16. Follow-ups
 
@@ -624,3 +651,10 @@ reading the room see a modified reply marked as the teacher agent's revision."
 - FU-13 (code review): `resolve_member_group_names` infers a room group by retrying unresolved ids
   as chatroom ids; the stored `group_kind` should decide. A room-group proposal reads the chatroom
   three times, and a group-round agent turn spends three or four queries deciding the mode.
+- FU-14 (D-9): Whether the guidance changes students' flexibility is unmeasured. The export
+  could carry per-round counts of distinct candidate characters and of starting clues used, so
+  the effect is readable without reading transcripts.
+- FU-15 (local environment): The Windows Python used for local backend tests had FastAPI 0.115.6
+  installed against the declared `>=0.137`, so `tests/conftest.py` failed to import the app; the
+  AC-16 tests ran in an overlay venv with FastAPI 0.141 and ruff 0.17, outside the declared ruff
+  range. CI remains the authority.
