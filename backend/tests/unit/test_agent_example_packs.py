@@ -2289,3 +2289,81 @@ class TestCratLabTrialPrompts:
         rules = _section(prompt, "提示詞規範")
         numbers = [int(n) for n in re.findall(r"^(\d+)\. ", rules, re.MULTILINE)]
         assert numbers == list(range(1, len(numbers) + 1))
+
+
+class TestCratFlexibilityGuidance:
+    """CRAT lab retrial (2026-11-26): the teacher agent only posed questions and checked
+    candidates. It now also teaches switching routes: ask for a second answer once,
+    hint in three graded layers when stuck, and model another route at the debrief."""
+
+    @staticmethod
+    def _prompt() -> str:
+        return next(a for _, a in SHIPPED_AGENTS if a.key == "ta-crat-teacher").system_prompt
+
+    def test_the_block_states_its_purpose_and_the_stuck_signals(self) -> None:
+        block = _section(self._prompt(), "引導思維彈性")
+        assert "一條路走不通時換一條路，不是快點找到答案" in block
+        for signal in ("大家都從同一個線索字出發", "大家卻還繞著它", "想不到", "冷場"):
+            assert signal in block, signal
+        assert "討論順利時不加" in block
+
+    def test_hints_go_from_a_question_to_a_method_to_a_direction_one_layer_at_a_time(self) -> None:
+        block = _section(self._prompt(), "引導思維彈性")
+        first, second, third = (block.index(f"第{n}層") for n in ("一", "二", "三"))
+        assert first < second < third
+        assert "一輪只給一層，同一層不重複說" in block
+        assert "學生提出新的候選字之後，下一次從第一層重來" in block
+        assert "換一個線索字當起點" in block[first:second]
+        assert "一次只給一個做法" in block[second:third]
+
+    def test_the_third_layer_keeps_the_answer_boundary(self) -> None:
+        third = _section(self._prompt(), "引導思維彈性").split("第三層")[1]
+        assert "不可以說出目標字、說出任何一個完整的詞，或用同音字、拆字暗示目標字" in third
+
+    def test_the_block_itself_leaks_no_bank_answer(self) -> None:
+        block = _section(self._prompt(), "引導思維彈性")
+        for secret in _bank_secrets():
+            if len(secret) > 1:
+                assert secret not in block, secret
+
+    def test_jargon_is_named_only_in_the_rule_that_forbids_it(self) -> None:
+        block = _section(self._prompt(), "引導思維彈性")
+        assert "不要用「彈性」「固著」「策略」這類沒解釋過的詞" in block
+        assert block.count("固著") == 1
+
+    def test_an_asked_how_to_think_is_answered_at_once(self) -> None:
+        assert "不用等冷場" in _section(self._prompt(), "引導思維彈性")
+
+    def test_the_cold_lines_of_the_discussion_step_defer_to_the_layers(self) -> None:
+        c1 = _section(self._prompt(), "步驟C1")
+        assert "出現<引導思維彈性>第 1 條寫的卡關訊號" in c1
+        assert "一輪只給一層" in c1
+
+    def test_the_group_is_asked_for_a_second_answer_once(self) -> None:
+        c2 = _section(self._prompt(), "步驟C2")
+        assert "往<主流程D>之前先邀請一次「再找一個」" in c2
+        assert "只在這一題只有一個驗證過的字、而且你還沒問過時才問" in c2
+        assert "大家說找不到或冷場，也繼續執行<主流程D>" in c2
+        # The rule against reopening an agreed answer stands.
+        assert "已同意的答案不要再把它拿出來重新討論" in c2
+
+    def test_two_verified_answers_are_not_forced_into_one_before_submitting(self) -> None:
+        d1 = _section(self._prompt(), "步驟D1")
+        assert "X 和 Y 都成立，這一題交哪一個都可以，由這一組選一個來提交" in d1
+        assert "請選定其中一個" not in self._prompt()
+
+    def test_the_debrief_models_a_route_the_group_did_not_take(self) -> None:
+        e1 = _section(self._prompt(), "步驟E1")
+        numbers = [int(n) for n in re.findall(r"^\s*(\d+)\. ", e1, re.MULTILINE)]
+        assert numbers[:4] == [1, 2, 3, 4]
+        step = next(line for line in e1.splitlines() if line.startswith("3. "))
+        assert "這一組這一題沒走過的路" in step
+        assert "只說這一組實際做過的事" in step
+
+    def test_the_designer_requires_the_guidance_in_teacher_drafts(self) -> None:
+        designer = next(a for _, a in SHIPPED_AGENTS if a.key == "da-crat-designer")
+        rules = _section(designer.system_prompt, "提示詞規範")
+        item = next(line for line in rules.splitlines() if line.startswith("11. "))
+        assert "引導思維彈性" in item
+        assert "再找一個" in item
+        assert "不說出目標字" in item
